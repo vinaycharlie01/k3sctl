@@ -17,10 +17,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Load Taskfile
+        run: task --list
       - name: Check formatting
-        run: test -z "$(gofmt -l .)" || { echo "Files need formatting:"; gofmt -l .; exit 1; }
+        run: task check-fmt
       - name: Vet
-        run: go vet ./...
+        run: task vet
 
   test:
     runs-on: ubuntu-latest
@@ -29,8 +35,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: task test-race
       - uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -45,11 +55,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
-        run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-          go build -ldflags "-s -w \
-            -X github.com/vinaycharlie01/k3sctl/version.Version=${VERSION} \
-            -X github.com/vinaycharlie01/k3sctl/version.GitCommit=${GIT_COMMIT}" \
-            -o k3sctl .
+        run: task build
+      - name: Cross-compile
+        run: task build-all

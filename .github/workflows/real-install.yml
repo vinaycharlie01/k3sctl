@@ -53,8 +53,13 @@ jobs:
           # go.mod pins the language version only; build with a current toolchain.
           go-version: stable
 
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build CLI
-        run: go build -trimpath -o k3sctl .
+        run: task build
 
       - name: Preflight (systemd + passwordless sudo)
         shell: bash

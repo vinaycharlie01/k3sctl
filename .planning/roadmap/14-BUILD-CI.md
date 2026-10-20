@@ -41,10 +41,10 @@ BUILD_FLAGS = -trimpath -a \
 ### `.github/workflows/go.yml` — Unit Tests
 - **Source**: `k0sctl/.github/workflows/go.yml`
 - **Changes**:
-  - Trigger: PRs touching `**.go`, `go.mod`, `go.sum`, `Makefile`
+  - Trigger: PRs touching `**.go`, `go.mod`, `go.sum`, `Taskfile.yml`
   - Matrix: ubuntu-latest, macos-latest (remove windows-latest)
   - Steps: checkout → setup-go → `go test -v ./...`
-  - Build job: `make build-all`
+  - Build job: `task build-all`
 
 ### `.github/workflows/golangci-lint.yml` — Linting
 - **Source**: `k0sctl/.github/workflows/golangci-lint.yml`
@@ -54,7 +54,7 @@ BUILD_FLAGS = -trimpath -a \
 - **Source**: `k0sctl/.github/workflows/release.yml`
 - **Changes**:
   - Trigger: push tags `v*`
-  - Build: `make build-all`
+  - Build: `task build-all`
   - Upload artifacts: `bin/k3sctl-*`
   - Docker image build: adapt for k3sctl
   - GitHub release: draft with checksums
