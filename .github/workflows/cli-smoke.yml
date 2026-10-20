@@ -40,7 +40,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          otool -l k3sctl | grep -q LC_UUID || {
+          otool -l k3sctl > macho.loads
+          grep -q LC_UUID macho.loads || {
             echo "::error::binary has no LC_UUID load command; macOS dyld will refuse to run it"
             exit 1
           }
@@ -59,7 +60,8 @@ jobs:
           grep -q '^k3sctl version:' version.out || fail "version output missing 'k3sctl version:'"
           pass "k3sctl version reports correctly"
 
-          ./k3sctl --version | grep -q 'k3sctl version' || fail "--version output unexpected"
+          ./k3sctl --version > version-flag.out
+          grep -q 'k3sctl version' version-flag.out || fail "--version output unexpected"
           pass "--version works"
 
       - name: Command surface is complete
@@ -78,7 +80,8 @@ jobs:
           for cmd in apply kubeconfig reset backup init version; do
             ./k3sctl "${cmd}" --help > /dev/null || fail "${cmd} --help failed"
           done
-          ./k3sctl config --help | grep -q 'status' || fail "config help is missing status subcommand"
+          ./k3sctl config --help > config-help.out
+          grep -q 'status' config-help.out || fail "config help is missing status subcommand"
           pass "subcommand help works offline"
 
       - name: Shell completion generates output
@@ -88,8 +91,10 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
           pass() { echo "PASS: $*"; }
 
-          ./k3sctl completion bash | grep -q '_k3sctl_completions' || fail "bash completion script invalid"
-          ./k3sctl completion zsh | grep -q '_k3sctl(' || fail "zsh completion script invalid"
+          ./k3sctl completion bash > completion.bash
+          grep -q '_k3sctl_completions' completion.bash || fail "bash completion script invalid"
+          ./k3sctl completion zsh > completion.zsh
+          grep -q '_k3sctl(' completion.zsh || fail "zsh completion script invalid"
           pass "bash and zsh completion scripts"
 
       - name: init generates a valid cluster config
