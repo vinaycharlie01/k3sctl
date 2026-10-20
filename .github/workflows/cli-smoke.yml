@@ -28,10 +28,22 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # go.mod pins the language version (1.22), not the toolchain.
+          # The Go 1.22 linker emits Mach-O binaries without LC_UUID, which
+          # modern macOS runners refuse to execute (dyld: missing LC_UUID).
+          go-version: stable
 
       - name: Build CLI
         run: go build -trimpath -o k3sctl .
+
+      - name: Mach-O has LC_UUID (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          otool -l k3sctl | grep -q LC_UUID || {
+            echo "::error::binary has no LC_UUID load command; macOS dyld will refuse to run it"
+            exit 1
+          }
 
       - name: Binary exists and is executable
         shell: bash

@@ -16,7 +16,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Use a current toolchain: the darwin binaries are built here by the
+          # internal linker, and Go 1.22 (the go.mod language version) emits
+          # Mach-O output without LC_UUID, which modern macOS rejects.
+          go-version: stable
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
