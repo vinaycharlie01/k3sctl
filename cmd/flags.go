@@ -120,6 +120,17 @@ func loadConfig(configPath string) (*v1beta1.Cluster, error) {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
 
+	if cfg.Spec != nil && len(cfg.Spec.Manifests) > 0 {
+		cfg.Metadata.Manifests = make(map[string][]byte, len(cfg.Spec.Manifests))
+		for name, path := range cfg.Spec.Manifests {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read manifest %s (%s): %w", name, path, err)
+			}
+			cfg.Metadata.Manifests[name] = data
+		}
+	}
+
 	return cfg, nil
 }
 

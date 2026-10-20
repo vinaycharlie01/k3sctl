@@ -26,6 +26,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.Connect{},
 		&phase.DetectOS{},
 		&phase.PrepareHosts{},
+		&phase.PrepareArm{},
 		&phase.GatherFacts{},
 		&phase.ValidateHosts{},
 		&phase.GatherK3sFacts{},
@@ -49,6 +50,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.ResetAgents{NoDrain: opts.NoDrain},
 		&phase.ResetServers{NoDrain: opts.NoDrain},
 		&phase.RunHooks{Action: "apply", Stage: "after"},
+		&phase.ApplyManifests{},
 	)
 
 	if opts.KubeconfigOut != nil {

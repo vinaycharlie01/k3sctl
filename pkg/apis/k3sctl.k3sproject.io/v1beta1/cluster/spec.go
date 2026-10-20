@@ -5,9 +5,10 @@ import (
 )
 
 type Spec struct {
-	Hosts   Hosts    `yaml:"hosts" validate:"required,min=1"`
-	K3s     *K3s     `yaml:"k3s,omitempty"`
-	Options *Options `yaml:"options,omitempty"`
+	Hosts     Hosts             `yaml:"hosts" validate:"required,min=1"`
+	K3s       *K3s              `yaml:"k3s,omitempty"`
+	Options   *Options          `yaml:"options,omitempty"`
+	Manifests map[string]string `yaml:"manifests,omitempty"`
 }
 
 func (s *Spec) SetDefaults() {

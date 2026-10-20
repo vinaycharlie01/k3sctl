@@ -9,8 +9,9 @@ import (
 const APIVersion = "k3sctl.k3sproject.io/v1beta1"
 
 type ClusterMetadata struct {
-	Name       string `yaml:"name" default:"k3s-cluster"`
-	Kubeconfig string `yaml:"-"`
+	Name       string            `yaml:"name" default:"k3s-cluster"`
+	Kubeconfig string            `yaml:"-"`
+	Manifests  map[string][]byte `yaml:"-"`
 }
 
 type Cluster struct {
