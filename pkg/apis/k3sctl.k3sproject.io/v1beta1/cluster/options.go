@@ -44,7 +44,7 @@ func (o *Options) GetDrainOptions() *DrainOption {
 
 // UnmarshalYAML applies defaults before decoding so that partially specified
 // drain options keep the documented default behavior.
-func (d *DrainOption) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (d *DrainOption) UnmarshalYAML(unmarshal func(any) error) error {
 	tmp := DrainOption{
 		Enabled:          true,
 		Timeout:          "5m",

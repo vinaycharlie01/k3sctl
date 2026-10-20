@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeBinaryCacher -o ./mocks/fake_binary_cacher.go . BinaryCacher
 type BinaryCacher interface {
 	CacheBinary(ctx context.Context, version, arch string) (string, error)
 	CachedBinaryPath(version, arch string) string
@@ -82,7 +83,7 @@ func (p *localUploadProvider) Stage(ctx context.Context) error {
 		}
 	}
 
-	remotePath := stageTempPath(p.host, p.version)
+	remotePath := stageTempPath(p.version)
 	log.Infof("%s: uploading k3s %s binary", p.host, p.version)
 	if err := stageUpload(ctx, p.host, localPath, remotePath); err != nil {
 		return fmt.Errorf("stage upload: %w", err)

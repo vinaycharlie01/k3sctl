@@ -46,7 +46,7 @@ func TestGenerateServerConfig_Leader(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "my-token", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, true, config["cluster-init"])
@@ -63,7 +63,7 @@ func TestGenerateServerConfig_JoinExisting(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "my-token", false, "10.0.0.1")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "https://10.0.0.1:6443", config["server"])
@@ -83,7 +83,7 @@ func TestGenerateServerConfig_PrivateAddress(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "192.168.1.10", config["node-ip"])
@@ -100,7 +100,7 @@ func TestGenerateServerConfig_NoFlannel(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "none", config["flannel-backend"])
@@ -116,7 +116,7 @@ func TestGenerateServerConfig_ExtraArgs(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "10.0.0.100", config["tls-san"])
@@ -134,7 +134,7 @@ func TestGenerateServerConfig_ExtraArgsBoolFlag(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, true, config["secrets-encryption"])
@@ -150,7 +150,7 @@ func TestGenerateServerConfig_BaseConfigPassedThrough(t *testing.T) {
 	data, err := k.GenerateServerConfig(host, "", true, "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "644", config["write-kubeconfig-mode"])
@@ -165,7 +165,7 @@ func TestGenerateAgentConfig_Basic(t *testing.T) {
 	data, err := k.GenerateAgentConfig(host, "10.0.0.1", "agent-token")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "https://10.0.0.1:6443", config["server"])
@@ -183,7 +183,7 @@ func TestGenerateAgentConfig_PrivateAddress(t *testing.T) {
 	data, err := k.GenerateAgentConfig(host, "10.0.0.1", "token")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	assert.Equal(t, "192.168.1.20", config["node-ip"])
@@ -209,7 +209,7 @@ func TestGenerateAgentConfig_FiltersServerOnlyFields(t *testing.T) {
 	data, err := k.GenerateAgentConfig(host, "10.0.0.1", "token")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	serverOnlyKeys := []string{
@@ -234,7 +234,7 @@ func TestGenerateAgentConfig_EmptyToken(t *testing.T) {
 	data, err := k.GenerateAgentConfig(host, "10.0.0.1", "")
 	require.NoError(t, err)
 
-	var config map[string]interface{}
+	var config map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
 	_, hasToken := config["token"]

@@ -10,7 +10,7 @@ import (
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakePhase -o ./fake_phase_test.go . Phase
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakePhase -o ./mocks/fake_phase.go . Phase
 type Phase interface {
 	Run(ctx context.Context) error
 	Title() string
@@ -42,6 +42,27 @@ type withbefore interface {
 
 type withafter interface {
 	After(ctx context.Context) error
+}
+
+type withmanager interface {
+	SetManager(*Manager)
+}
+
+// FullPhase is the union of every optional phase interface. A phase that
+// implements all of them exercises every hook the Manager can invoke. It is
+// exported so a single fake can be generated for it.
+//
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeFullPhase -o ./mocks/fake_full_phase.go . FullPhase
+type FullPhase interface {
+	Phase
+	withconfig
+	withprepare
+	conditional
+	withcleanup
+	withbefore
+	withafter
+	withdryrun
+	withmanager
 }
 
 type Phases []Phase
@@ -138,8 +159,8 @@ func (m *Manager) runPhase(ctx context.Context, phase Phase) (bool, error) {
 		wc.SetConfig(m.Config)
 	}
 
-	if p, ok := phase.(interface{ SetManager(*Manager) }); ok {
-		p.SetManager(m)
+	if sm, ok := phase.(withmanager); ok {
+		sm.SetManager(m)
 	}
 
 	if wp, ok := phase.(withprepare); ok {

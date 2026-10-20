@@ -7,6 +7,7 @@ import (
 	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeBinaryProvider -o ./mocks/fake_binary_provider.go . BinaryProvider
 type BinaryProvider interface {
 	NeedsUpgrade(ctx context.Context) (bool, error)
 	IsUpload() bool

@@ -53,7 +53,7 @@ func (p *downloadProvider) IsUpload() bool {
 }
 
 func (p *downloadProvider) Stage(ctx context.Context) error {
-	remotePath := stageTempPath(p.host, p.version)
+	remotePath := stageTempPath(p.version)
 	log.Infof("%s: staging k3s %s from %s", p.host, p.version, p.url)
 	if err := stageDownload(ctx, p.host, p.url, remotePath); err != nil {
 		return fmt.Errorf("stage download: %w", err)

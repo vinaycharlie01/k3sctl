@@ -1,4 +1,4 @@
-package binprovider
+package binprovider_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider"
+	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider/mocks"
 )
 
 func TestNewGitHubURL(t *testing.T) {
@@ -39,28 +41,60 @@ func TestNewGitHubURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			host := &FakeHost{}
+			host := &mocks.FakeHost{}
 			host.ArchReturns(tt.arch, tt.archErr)
 
-			p := NewGitHub(host, "v1.30.0+k3s1")
-			assert.Equal(t, tt.want, p.url)
+			p := binprovider.NewGitHub(host, "v1.30.0+k3s1")
 			assert.False(t, p.IsUpload())
+
+			assert.NoError(t, p.Stage(context.Background()))
+
+			url, _ := host.DownloadURLArgsForCall(0)
+			assert.Equal(t, tt.want, url)
 		})
 	}
 }
 
 func TestNewCustomURL(t *testing.T) {
-	p := NewCustomURL(&FakeHost{}, "v1.30.0+k3s1", "https://mirror.example.com/k3s")
+	host := &mocks.FakeHost{}
+	p := binprovider.NewCustomURL(host, "v1.30.0+k3s1", "https://mirror.example.com/k3s")
 
-	assert.Equal(t, "https://mirror.example.com/k3s", p.url)
 	assert.False(t, p.IsUpload())
+	assert.NoError(t, p.Stage(context.Background()))
+
+	url, _ := host.DownloadURLArgsForCall(0)
+	assert.Equal(t, "https://mirror.example.com/k3s", url)
 }
 
 func TestExistingProvider(t *testing.T) {
-	p := NewExisting(&FakeHost{})
+	p := binprovider.NewExisting(&mocks.FakeHost{})
 
 	needsUpgrade, err := p.NeedsUpgrade(context.Background())
 	assert.NoError(t, err)
 	assert.False(t, needsUpgrade)
 	assert.Empty(t, p.StagedPath())
+}
+
+func TestNeedsUpgrade(t *testing.T) {
+	tests := []struct {
+		name      string
+		installed string
+		target    string
+		want      bool
+	}{
+		{"fresh host", "", "v1.30.0+k3s1", true},
+		{"same version", "v1.30.0+k3s1", "v1.30.0+k3s1", false},
+		{"different version", "v1.29.0+k3s1", "v1.30.0+k3s1", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host := &mocks.FakeHost{}
+			host.InstalledK3sVersionReturns(tt.installed)
+
+			got, err := binprovider.NewGitHub(host, tt.target).NeedsUpgrade(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

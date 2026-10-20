@@ -1,4 +1,4 @@
-package phase
+package phase_test
 
 import (
 	"context"
@@ -6,38 +6,20 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/vinaycharlie01/k3sctl/phase"
+	"github.com/vinaycharlie01/k3sctl/phase/mocks"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 )
 
-// fullPhase is the union of every optional phase interface. It exists so
-// counterfeiter can generate a single fake that exercises all manager hooks.
-type fullPhase interface {
-	Phase
-	withconfig
-	withprepare
-	conditional
-	withcleanup
-	withbefore
-	withafter
-	withdryrun
-}
-
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeFullPhase -o ./fake_full_phase_test.go . fullPhase
-
-var (
-	_ Phase     = (*FakePhase)(nil)
-	_ fullPhase = (*FakeFullPhase)(nil)
-)
-
-func newTitledPhase(title string) *FakePhase {
-	p := &FakePhase{}
+func newTitledPhase(title string) *mocks.FakePhase {
+	p := &mocks.FakePhase{}
 	p.TitleReturns(title)
 	return p
 }
 
 func TestManager_RunPhasesInOrder(t *testing.T) {
 	var order []string
-	newPhase := func(title string) *FakePhase {
+	newPhase := func(title string) *mocks.FakePhase {
 		p := newTitledPhase(title)
 		p.RunCalls(func(context.Context) error {
 			order = append(order, title)
@@ -46,7 +28,7 @@ func TestManager_RunPhasesInOrder(t *testing.T) {
 		return p
 	}
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(newPhase("first"), newPhase("second"), newPhase("third"))
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -59,12 +41,12 @@ func TestManager_RunPhasesInOrder(t *testing.T) {
 }
 
 func TestManager_ConditionalPhaseSkipped(t *testing.T) {
-	skipped := &FakeFullPhase{}
+	skipped := &mocks.FakeFullPhase{}
 	skipped.TitleReturns("skipped")
 	skipped.ShouldRunReturns(false)
 	executed := newTitledPhase("executed")
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(skipped, executed)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -83,11 +65,11 @@ func TestManager_ConditionalPhaseSkipped(t *testing.T) {
 }
 
 func TestManager_ConditionalPhaseRuns(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("conditional")
 	p.ShouldRunReturns(true)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -100,7 +82,7 @@ func TestManager_ConditionalPhaseRuns(t *testing.T) {
 }
 
 func TestManager_PrepareCalledBeforeRun(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("preparable")
 	p.ShouldRunReturns(true)
 
@@ -110,7 +92,7 @@ func TestManager_PrepareCalledBeforeRun(t *testing.T) {
 		return nil
 	})
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -126,11 +108,11 @@ func TestManager_PrepareCalledBeforeRun(t *testing.T) {
 }
 
 func TestManager_CleanUpNotCalledOnSuccess(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("cleanable")
 	p.ShouldRunReturns(true)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -148,24 +130,24 @@ func TestManager_CleanUpNotCalledOnSuccess(t *testing.T) {
 func TestManager_CleanUpCalledForEnteredPhasesOnFailure(t *testing.T) {
 	boom := errors.New("boom")
 
-	staged := &FakeFullPhase{}
+	staged := &mocks.FakeFullPhase{}
 	staged.TitleReturns("staged")
 	staged.ShouldRunReturns(true)
 
-	failing := &FakeFullPhase{}
+	failing := &mocks.FakeFullPhase{}
 	failing.TitleReturns("install")
 	failing.ShouldRunReturns(true)
 	failing.RunReturns(boom)
 
-	skipped := &FakeFullPhase{}
+	skipped := &mocks.FakeFullPhase{}
 	skipped.TitleReturns("skipped")
 	skipped.ShouldRunReturns(false)
 
-	notReached := &FakeFullPhase{}
+	notReached := &mocks.FakeFullPhase{}
 	notReached.TitleReturns("not-reached")
 	notReached.ShouldRunReturns(true)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(staged, failing, skipped, notReached)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
@@ -202,7 +184,7 @@ func TestManager_ErrorStopsExecution(t *testing.T) {
 		return nil
 	})
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(failing, after)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
@@ -227,7 +209,7 @@ func TestManager_ContextCancellation(t *testing.T) {
 	})
 	checker := newTitledPhase("checker")
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(canceller, checker)
 
 	_ = m.Run(ctx, &v1beta1.Cluster{})
@@ -244,11 +226,11 @@ func TestManager_ContextCancellation(t *testing.T) {
 }
 
 func TestManager_SetConfigPropagated(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("config-aware")
 	p.ShouldRunReturns(true)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	cfg := &v1beta1.Cluster{
@@ -272,12 +254,12 @@ func TestManager_SetConfigPropagated(t *testing.T) {
 func TestManager_BeforeHookError(t *testing.T) {
 	beforeErr := errors.New("before failed")
 
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("hook-phase")
 	p.ShouldRunReturns(true)
 	p.BeforeReturns(beforeErr)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
@@ -301,12 +283,12 @@ func TestManager_BeforeHookError(t *testing.T) {
 func TestManager_AfterHookError(t *testing.T) {
 	afterErr := errors.New("after failed")
 
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("hook-phase")
 	p.ShouldRunReturns(true)
 	p.AfterReturns(afterErr)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
@@ -325,11 +307,11 @@ func TestManager_AfterHookError(t *testing.T) {
 }
 
 func TestManager_DryRunMode(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("dry-runnable")
 	p.ShouldRunReturns(true)
 
-	m := &Manager{DryRun: true}
+	m := &phase.Manager{DryRun: true}
 	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -353,7 +335,7 @@ func TestManager_DryRunMode(t *testing.T) {
 func TestManager_DryRunModeWithoutDryRunInterface(t *testing.T) {
 	p := newTitledPhase("not-dry-runnable")
 
-	m := &Manager{DryRun: true}
+	m := &phase.Manager{DryRun: true}
 	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
@@ -366,11 +348,11 @@ func TestManager_DryRunModeWithoutDryRunInterface(t *testing.T) {
 }
 
 func TestManager_FullPhaseLifecycle(t *testing.T) {
-	p := &FakeFullPhase{}
+	p := &mocks.FakeFullPhase{}
 	p.TitleReturns("full")
 	p.ShouldRunReturns(true)
 
-	m := &Manager{}
+	m := &phase.Manager{}
 	m.AddPhase(p)
 
 	cfg := &v1beta1.Cluster{
@@ -412,7 +394,7 @@ func TestManager_FullPhaseLifecycle(t *testing.T) {
 }
 
 func TestPhases_Add(t *testing.T) {
-	var phases Phases
+	var phases phase.Phases
 	p1 := newTitledPhase("a")
 	p2 := newTitledPhase("b")
 	phases.Add(p1, p2)
@@ -430,7 +412,7 @@ func TestPhases_AddBefore(t *testing.T) {
 	p2 := newTitledPhase("b")
 	insert := newTitledPhase("inserted")
 
-	var phases Phases
+	var phases phase.Phases
 	phases.Add(p1, p2)
 	phases.AddBefore(p2, insert)
 
@@ -447,7 +429,7 @@ func TestPhases_AddAfter(t *testing.T) {
 	p2 := newTitledPhase("b")
 	insert := newTitledPhase("inserted")
 
-	var phases Phases
+	var phases phase.Phases
 	phases.Add(p1, p2)
 	phases.AddAfter(p1, insert)
 
@@ -464,7 +446,7 @@ func TestPhases_AddBeforeNotFound(t *testing.T) {
 	notInList := newTitledPhase("missing")
 	insert := newTitledPhase("appended")
 
-	var phases Phases
+	var phases phase.Phases
 	phases.Add(p1)
 	phases.AddBefore(notInList, insert)
 
@@ -481,7 +463,7 @@ func TestPhases_AddAfterNotFound(t *testing.T) {
 	notInList := newTitledPhase("missing")
 	insert := newTitledPhase("appended")
 
-	var phases Phases
+	var phases phase.Phases
 	phases.Add(p1)
 	phases.AddAfter(notInList, insert)
 
@@ -494,21 +476,21 @@ func TestPhases_AddAfterNotFound(t *testing.T) {
 }
 
 func TestManager_EmptyPhases(t *testing.T) {
-	m := &Manager{}
+	m := &phase.Manager{}
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("running empty phases should succeed, got: %v", err)
 	}
 }
 
 func TestManager_HostsNilConfig(t *testing.T) {
-	m := &Manager{}
+	m := &phase.Manager{}
 	if hosts := m.Hosts(); hosts != nil {
 		t.Errorf("expected nil hosts for nil config, got %v", hosts)
 	}
 }
 
 func TestManager_HostsNilSpec(t *testing.T) {
-	m := &Manager{Config: &v1beta1.Cluster{}}
+	m := &phase.Manager{Config: &v1beta1.Cluster{}}
 	if hosts := m.Hosts(); hosts != nil {
 		t.Errorf("expected nil hosts for nil spec, got %v", hosts)
 	}

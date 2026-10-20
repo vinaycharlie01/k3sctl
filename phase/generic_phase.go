@@ -41,7 +41,7 @@ func (p *GenericPhase) DryMsg(host fmt.Stringer, msg string) {
 	}
 }
 
-func (p *GenericPhase) DryMsgf(host fmt.Stringer, format string, args ...interface{}) {
+func (p *GenericPhase) DryMsgf(host fmt.Stringer, format string, args ...any) {
 	p.DryMsg(host, fmt.Sprintf(format, args...))
 }
 

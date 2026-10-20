@@ -6,6 +6,7 @@ import (
 	"github.com/k0sproject/rig/v2/remotefs"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeHost -o ./mocks/fake_host.go . Host
 type Host interface {
 	cmd.SimpleRunner
 	Sudo() *rig.Client

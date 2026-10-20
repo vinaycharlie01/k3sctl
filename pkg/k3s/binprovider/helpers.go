@@ -37,7 +37,7 @@ func needsUpgrade(host Host, targetVersion string) bool {
 	return installed != targetVersion
 }
 
-func stageTempPath(host Host, version string) string {
+func stageTempPath(version string) string {
 	return filepath.Join("/tmp", fmt.Sprintf("k3s-%s.tmp", version))
 }
 
