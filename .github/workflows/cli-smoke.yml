@@ -33,8 +33,13 @@ jobs:
           # modern macOS runners refuse to execute (dyld: missing LC_UUID).
           go-version: stable
 
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build CLI
-        run: go build -trimpath -o k3sctl .
+        run: task build
 
       - name: Mach-O has LC_UUID (macOS)
         if: runner.os == 'macOS'

@@ -1,0 +1,102 @@
+version: '3'
+
+# Build tooling for k3sctl. Run `task --list` to see every task.
+
+vars:
+  BINARY_NAME: k3sctl
+  DIST_DIR: dist
+  # k3s publishes amd64, arm64 and armhf builds.
+  PLATFORMS: linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  GIT_COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  LDFLAGS: >-
+    -s -w
+    -X github.com/vinaycharlie01/k3sctl/version.Version={{.VERSION}}
+    -X github.com/vinaycharlie01/k3sctl/version.GitCommit={{.GIT_COMMIT}}
+
+tasks:
+  default:
+    desc: List the available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the CLI for the current platform
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.BINARY_NAME}} .
+
+  build-all:
+    desc: Cross-compile the CLI for linux and darwin into ./dist
+    cmds:
+      - |
+        set -e
+        mkdir -p {{.DIST_DIR}}
+        for platform in {{.PLATFORMS}}; do
+          os=${platform%%/*}
+          arch=${platform##*/}
+          out={{.DIST_DIR}}/{{.BINARY_NAME}}-${os}-${arch}
+          if [ "$arch" = "arm" ]; then export GOARM=7; else unset GOARM; fi
+          echo "building $out"
+          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "{{.LDFLAGS}}" -o "$out" .
+        done
+
+  install:
+    desc: Install the CLI into GOBIN
+    cmds:
+      - go install -trimpath -ldflags "{{.LDFLAGS}}" .
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf {{.BINARY_NAME}} {{.DIST_DIR}}
+
+  generate:
+    desc: Regenerate mocks and other generated code
+    cmds:
+      - go generate ./...
+
+  test:
+    desc: Run the unit tests
+    cmds:
+      - go test ./...
+
+  test-race:
+    desc: Run the unit tests with the race detector and write coverage
+    cmds:
+      - go test -race -coverprofile=coverage.out ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Format the source tree
+    cmds:
+      - gofmt -w .
+
+  check-fmt:
+    desc: Fail if any file is not gofmt'd
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "Files need formatting:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  check:
+    desc: Check formatting, vet and run the tests
+    cmds:
+      - task: check-fmt
+      - task: vet
+      - task: test
+
+  lint:
+    desc: Run golangci-lint (see .golangci.yml)
+    cmds:
+      - golangci-lint run ./...
