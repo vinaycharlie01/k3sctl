@@ -127,6 +127,7 @@ jobs:
           if ./k3sctl reset -c invalid.yaml > invalid.log 2>&1; then
             fail "reset with invalid YAML should fail"
           fi
+          grep -qi 'parse config' invalid.log || fail "unexpected error for invalid YAML"
           pass "invalid YAML rejected"
 
           bin="$(pwd)/k3sctl"
@@ -136,6 +137,11 @@ jobs:
           fi
           grep -q 'config file not found: k3sctl.yaml' "${tmpdir}/default.log" || fail "default config path error unexpected"
           pass "default config path lookup fails cleanly"
+
+          # A failed command must report a reason, never exit silently.
+          [ -s missing.log ] || fail "failed command produced no output at all"
+          grep -q 'level=error' missing.log || fail "failed command did not log an error"
+          pass "failures are reported to the user"
 
       - name: Upload smoke artifacts
         if: always()
