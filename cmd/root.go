@@ -23,6 +23,7 @@ func NewK3sctl() *cli.App {
 			kubeconfigCommand(),
 			resetCommand(),
 			backupCommand(),
+			configCommand(),
 			initCommand(),
 			completionCommand(),
 		},

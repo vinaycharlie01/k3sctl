@@ -30,6 +30,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.ValidateHosts{},
 		&phase.GatherK3sFacts{},
 		&phase.ValidateFacts{DisableDowngradeCheck: opts.DisableDowngradeCheck},
+		&phase.ValidateEtcdMembers{},
 		lockPhase,
 		&phase.ResolveBinaryProviders{},
 		&phase.StageBinaries{},
