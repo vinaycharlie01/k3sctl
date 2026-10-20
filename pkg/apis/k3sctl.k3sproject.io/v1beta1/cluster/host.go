@@ -9,6 +9,7 @@ import (
 	"time"
 
 	rig "github.com/k0sproject/rig/v2"
+	rigos "github.com/k0sproject/rig/v2/os"
 	"github.com/k0sproject/rig/v2/protocol/openssh"
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
@@ -154,6 +155,12 @@ func (h *Host) Connect(ctx context.Context) error {
 	}
 	if err := h.Client.Connect(ctx); err != nil {
 		return fmt.Errorf("connect to %s: %w", h, err)
+	}
+	// rig v2.0.0-alpha.2 declares Client.OSReleaseService but never assigns it
+	// in Client.setup(), so the promoted Client.OS() dereferences a nil service.
+	// Wire it up with the same provider rig's defaults would use.
+	if h.Client.OSReleaseService == nil {
+		h.Client.OSReleaseService = rigos.NewOSReleaseService(rigos.DefaultProvider(), h.Client.Runner)
 	}
 	return nil
 }
