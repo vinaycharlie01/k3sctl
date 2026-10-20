@@ -3,10 +3,22 @@ name: Real K3s Install
 # End-to-end test: installs a real single-node K3s cluster on the runner
 # itself (via `localhost: true`), verifies it, and tears it down with `reset`.
 #
-# This cannot run on macOS (no K3s) and is too slow for every push, so it runs
-# on demand and nightly. The offline CLI surface is covered by cli-smoke.yml.
+# This cannot run on macOS (no K3s) and is too slow for every push, so it is
+# path-filtered. Note that `workflow_dispatch` and `schedule` are only evaluated
+# when the workflow exists on the default branch; the `push` trigger is what
+# makes it runnable on a feature branch. The offline CLI surface is covered by
+# cli-smoke.yml.
 
 on:
+  push:
+    branches:
+      - main
+      - feat/cli-smoke-and-parity
+    paths:
+      - ".github/workflows/real-install.yml"
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
   workflow_dispatch:
     inputs:
       k3s_version:
@@ -167,6 +179,8 @@ jobs:
             echo "::warning::skipping reset: build or config missing"
             exit 0
           fi
+          # A failed apply may have left the host lock behind, and reset acquires it too.
+          sudo -n rm -f /var/lock/k3sctl.lock
           ./k3sctl reset -c k3sctl.yaml --force 2>&1 | tee reset.log
 
       - name: Verify teardown
