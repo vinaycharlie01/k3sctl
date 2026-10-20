@@ -39,13 +39,17 @@ With Go:
 go install github.com/vinaycharlie01/k3sctl@latest
 ```
 
-Or build it yourself:
+Or build it yourself with [Task](https://taskfile.dev):
 
 ```sh
-make build      # ./k3sctl
-make install    # go install
-make build-all  # cross-compiled binaries in ./dist
+go install github.com/go-task/task/v3/cmd/task@latest
+
+task build      # ./k3sctl
+task install    # go install
+task build-all  # cross-compiled binaries in ./dist
 ```
+
+Run `task --list` for every available task.
 
 ## Quick start
 
@@ -175,14 +179,14 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 ## Development
 
 ```sh
-make check      # gofmt + go vet + go test
-make lint       # golangci-lint (see .golangci.yml)
-make build-all  # linux/darwin, amd64/arm64/arm
+task check      # gofmt + go vet + go test
+task lint       # golangci-lint (see .golangci.yml)
+task build-all  # linux/darwin, amd64/arm64/arm
 docker build -t k3sctl .
 ```
 
 Mocks are generated with [counterfeiter](https://github.com/maxbrunsfeld/counterfeiter)
-via `go generate`; do not hand-write fakes.
+via `go generate` (`task generate`); do not hand-write fakes.
 
 ## License
 
