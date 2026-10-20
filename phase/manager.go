@@ -10,6 +10,7 @@ import (
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakePhase -o ./fake_phase_test.go . Phase
 type Phase interface {
 	Run(ctx context.Context) error
 	Title() string
@@ -96,17 +97,43 @@ func (m *Manager) Hosts() cluster.Hosts {
 	return m.Config.Spec.Hosts
 }
 
+// Run executes the phases in order. CleanUp is a rollback hook, not a success
+// hook: when a phase fails, it is invoked for every phase that was entered
+// (including the failing one) so that partially applied changes are undone.
 func (m *Manager) Run(ctx context.Context, config *v1beta1.Cluster) error {
 	m.Config = config
+
+	var ran Phases
+	var result error
+	defer func() {
+		// Dry runs mutate nothing, and successful runs keep their results.
+		if result == nil || m.DryRun {
+			return
+		}
+		for _, phase := range ran {
+			if c, ok := phase.(withcleanup); ok {
+				log.Infof("Running clean-up for phase: %s", phase.Title())
+				c.CleanUp()
+			}
+		}
+	}()
+
 	for _, phase := range m.Phases {
-		if err := m.runPhase(ctx, phase); err != nil {
+		entered, err := m.runPhase(ctx, phase)
+		if entered {
+			ran = append(ran, phase)
+		}
+		if err != nil {
+			result = err
 			return err
 		}
 	}
 	return nil
 }
 
-func (m *Manager) runPhase(ctx context.Context, phase Phase) error {
+// runPhase reports whether the phase was entered, so the caller can roll back
+// exactly the phases that started.
+func (m *Manager) runPhase(ctx context.Context, phase Phase) (bool, error) {
 	if wc, ok := phase.(withconfig); ok {
 		wc.SetConfig(m.Config)
 	}
@@ -121,7 +148,7 @@ func (m *Manager) runPhase(ctx context.Context, phase Phase) error {
 
 	if cond, ok := phase.(conditional); ok {
 		if !cond.ShouldRun() {
-			return nil
+			return false, nil
 		}
 	}
 
@@ -131,33 +158,29 @@ func (m *Manager) runPhase(ctx context.Context, phase Phase) error {
 
 	if wb, ok := phase.(withbefore); ok {
 		if err := wb.Before(ctx); err != nil {
-			return fmt.Errorf("phase %s before hook: %w", title, err)
+			return false, fmt.Errorf("phase %s before hook: %w", title, err)
 		}
 	}
 
 	if m.DryRun {
 		if dr, ok := phase.(withdryrun); ok {
 			if err := dr.DryRun(); err != nil {
-				return fmt.Errorf("phase %s dry run: %w", title, err)
+				return false, fmt.Errorf("phase %s dry run: %w", title, err)
 			}
-			return nil
+			return false, nil
 		}
 	}
 
 	if err := phase.Run(ctx); err != nil {
-		return fmt.Errorf("phase %s: %w", title, err)
+		return true, fmt.Errorf("phase %s: %w", title, err)
 	}
 
 	if wa, ok := phase.(withafter); ok {
 		if err := wa.After(ctx); err != nil {
-			return fmt.Errorf("phase %s after hook: %w", title, err)
+			return true, fmt.Errorf("phase %s after hook: %w", title, err)
 		}
 	}
 
-	if wc, ok := phase.(withcleanup); ok {
-		defer wc.CleanUp()
-	}
-
 	log.Infof("==> Phase %s completed in %s", title, time.Since(start).Round(time.Millisecond))
-	return nil
+	return true, nil
 }

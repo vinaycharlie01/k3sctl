@@ -3,146 +3,66 @@ package phase
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 )
 
-// mockPhase implements only the base Phase interface.
-type mockPhase struct {
-	title    string
-	runErr   error
-	executed bool
-	order    *[]string
+// fullPhase is the union of every optional phase interface. It exists so
+// counterfeiter can generate a single fake that exercises all manager hooks.
+type fullPhase interface {
+	Phase
+	withconfig
+	withprepare
+	conditional
+	withcleanup
+	withbefore
+	withafter
+	withdryrun
 }
 
-func (m *mockPhase) Title() string { return m.title }
-func (m *mockPhase) Run(_ context.Context) error {
-	m.executed = true
-	if m.order != nil {
-		*m.order = append(*m.order, m.title)
-	}
-	return m.runErr
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeFullPhase -o ./fake_full_phase_test.go . fullPhase
+
+var (
+	_ Phase     = (*FakePhase)(nil)
+	_ fullPhase = (*FakeFullPhase)(nil)
+)
+
+func newTitledPhase(title string) *FakePhase {
+	p := &FakePhase{}
+	p.TitleReturns(title)
+	return p
 }
-
-// mockConditionalPhase adds ShouldRun (conditional interface).
-type mockConditionalPhase struct {
-	mockPhase
-	shouldRun bool
-}
-
-func (m *mockConditionalPhase) ShouldRun() bool { return m.shouldRun }
-
-// mockPreparePhase adds Prepare (withprepare interface).
-type mockPreparePhase struct {
-	mockPhase
-	prepared bool
-}
-
-func (m *mockPreparePhase) Prepare() { m.prepared = true }
-
-// mockCleanUpPhase adds CleanUp (withcleanup interface).
-type mockCleanUpPhase struct {
-	mockPhase
-	cleanedUp bool
-}
-
-func (m *mockCleanUpPhase) CleanUp() { m.cleanedUp = true }
-
-// mockConfigPhase adds SetConfig (withconfig interface).
-type mockConfigPhase struct {
-	mockPhase
-	receivedConfig *v1beta1.Cluster
-}
-
-func (m *mockConfigPhase) SetConfig(config *v1beta1.Cluster) {
-	m.receivedConfig = config
-}
-
-// mockBeforeAfterPhase adds Before and After hooks.
-type mockBeforeAfterPhase struct {
-	mockPhase
-	beforeCalled bool
-	afterCalled  bool
-	beforeErr    error
-	afterErr     error
-}
-
-func (m *mockBeforeAfterPhase) Before(_ context.Context) error {
-	m.beforeCalled = true
-	return m.beforeErr
-}
-
-func (m *mockBeforeAfterPhase) After(_ context.Context) error {
-	m.afterCalled = true
-	return m.afterErr
-}
-
-// mockDryRunPhase adds DryRun (withdryrun interface).
-type mockDryRunPhase struct {
-	mockPhase
-	dryRunCalled bool
-	dryRunErr    error
-}
-
-func (m *mockDryRunPhase) DryRun() error {
-	m.dryRunCalled = true
-	return m.dryRunErr
-}
-
-// mockFullPhase combines all optional interfaces.
-type mockFullPhase struct {
-	title          string
-	runErr         error
-	executed       bool
-	order          *[]string
-	shouldRun      bool
-	prepared       bool
-	cleanedUp      bool
-	receivedConfig *v1beta1.Cluster
-}
-
-func (m *mockFullPhase) Title() string { return m.title }
-func (m *mockFullPhase) Run(_ context.Context) error {
-	m.executed = true
-	if m.order != nil {
-		*m.order = append(*m.order, m.title)
-	}
-	return m.runErr
-}
-func (m *mockFullPhase) ShouldRun() bool                   { return m.shouldRun }
-func (m *mockFullPhase) Prepare()                          { m.prepared = true }
-func (m *mockFullPhase) CleanUp()                          { m.cleanedUp = true }
-func (m *mockFullPhase) SetConfig(config *v1beta1.Cluster) { m.receivedConfig = config }
 
 func TestManager_RunPhasesInOrder(t *testing.T) {
-	order := []string{}
-	p1 := &mockPhase{title: "first", order: &order}
-	p2 := &mockPhase{title: "second", order: &order}
-	p3 := &mockPhase{title: "third", order: &order}
+	var order []string
+	newPhase := func(title string) *FakePhase {
+		p := newTitledPhase(title)
+		p.RunCalls(func(context.Context) error {
+			order = append(order, title)
+			return nil
+		})
+		return p
+	}
 
 	m := &Manager{}
-	m.AddPhase(p1, p2, p3)
+	m.AddPhase(newPhase("first"), newPhase("second"), newPhase("third"))
 
-	cfg := &v1beta1.Cluster{}
-	if err := m.Run(context.Background(), cfg); err != nil {
+	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(order) != 3 {
-		t.Fatalf("expected 3 phases executed, got %d", len(order))
-	}
-	if order[0] != "first" || order[1] != "second" || order[2] != "third" {
+	if want := []string{"first", "second", "third"}; !slices.Equal(order, want) {
 		t.Fatalf("unexpected execution order: %v", order)
 	}
 }
 
 func TestManager_ConditionalPhaseSkipped(t *testing.T) {
-	skipped := &mockConditionalPhase{
-		mockPhase: mockPhase{title: "skipped"},
-		shouldRun: false,
-	}
-	executed := &mockPhase{title: "executed"}
+	skipped := &FakeFullPhase{}
+	skipped.TitleReturns("skipped")
+	skipped.ShouldRunReturns(false)
+	executed := newTitledPhase("executed")
 
 	m := &Manager{}
 	m.AddPhase(skipped, executed)
@@ -151,91 +71,148 @@ func TestManager_ConditionalPhaseSkipped(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if skipped.executed {
+	if skipped.ShouldRunCallCount() != 1 {
+		t.Errorf("ShouldRun() called %d times, want 1", skipped.ShouldRunCallCount())
+	}
+	if skipped.RunCallCount() != 0 {
 		t.Error("conditional phase with ShouldRun()=false was executed")
 	}
-	if !executed.executed {
+	if executed.RunCallCount() != 1 {
 		t.Error("phase after skipped phase was not executed")
 	}
 }
 
 func TestManager_ConditionalPhaseRuns(t *testing.T) {
-	phase := &mockConditionalPhase{
-		mockPhase: mockPhase{title: "conditional"},
-		shouldRun: true,
-	}
+	p := &FakeFullPhase{}
+	p.TitleReturns("conditional")
+	p.ShouldRunReturns(true)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !phase.executed {
+	if p.RunCallCount() != 1 {
 		t.Error("conditional phase with ShouldRun()=true was not executed")
 	}
 }
 
 func TestManager_PrepareCalledBeforeRun(t *testing.T) {
-	phase := &mockPreparePhase{
-		mockPhase: mockPhase{title: "preparable"},
-	}
+	p := &FakeFullPhase{}
+	p.TitleReturns("preparable")
+	p.ShouldRunReturns(true)
+
+	preparedBeforeRun := false
+	p.RunCalls(func(context.Context) error {
+		preparedBeforeRun = p.PrepareCallCount() == 1
+		return nil
+	})
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !phase.prepared {
-		t.Error("Prepare() was not called")
+	if p.PrepareCallCount() != 1 {
+		t.Errorf("Prepare() called %d times, want 1", p.PrepareCallCount())
 	}
-	if !phase.executed {
-		t.Error("Run() was not called after Prepare()")
+	if !preparedBeforeRun {
+		t.Error("Prepare() was not called before Run()")
 	}
 }
 
-func TestManager_CleanUpCalledAfterRun(t *testing.T) {
-	phase := &mockCleanUpPhase{
-		mockPhase: mockPhase{title: "cleanable"},
-	}
+func TestManager_CleanUpNotCalledOnSuccess(t *testing.T) {
+	p := &FakeFullPhase{}
+	p.TitleReturns("cleanable")
+	p.ShouldRunReturns(true)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !phase.executed {
-		t.Error("Run() was not called")
+	if p.RunCallCount() != 1 {
+		t.Errorf("Run() called %d times, want 1", p.RunCallCount())
 	}
-	if !phase.cleanedUp {
-		t.Error("CleanUp() was not called after Run()")
+	if p.CleanUpCallCount() != 0 {
+		t.Error("CleanUp() must not run on success: it is a rollback hook")
+	}
+}
+
+func TestManager_CleanUpCalledForEnteredPhasesOnFailure(t *testing.T) {
+	boom := errors.New("boom")
+
+	staged := &FakeFullPhase{}
+	staged.TitleReturns("staged")
+	staged.ShouldRunReturns(true)
+
+	failing := &FakeFullPhase{}
+	failing.TitleReturns("install")
+	failing.ShouldRunReturns(true)
+	failing.RunReturns(boom)
+
+	skipped := &FakeFullPhase{}
+	skipped.TitleReturns("skipped")
+	skipped.ShouldRunReturns(false)
+
+	notReached := &FakeFullPhase{}
+	notReached.TitleReturns("not-reached")
+	notReached.ShouldRunReturns(true)
+
+	m := &Manager{}
+	m.AddPhase(staged, failing, skipped, notReached)
+
+	err := m.Run(context.Background(), &v1beta1.Cluster{})
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped 'boom' error, got: %v", err)
+	}
+
+	if staged.CleanUpCallCount() != 1 {
+		t.Error("CleanUp() was not called for the phase that ran before the failure")
+	}
+	if failing.CleanUpCallCount() != 1 {
+		t.Error("CleanUp() was not called for the failing phase")
+	}
+	if skipped.RunCallCount() != 0 || skipped.CleanUpCallCount() != 0 {
+		t.Error("a phase skipped by ShouldRun() must not run or be cleaned up")
+	}
+	if notReached.RunCallCount() != 0 || notReached.CleanUpCallCount() != 0 {
+		t.Error("a phase after the failure must not run or be cleaned up")
 	}
 }
 
 func TestManager_ErrorStopsExecution(t *testing.T) {
-	order := []string{}
-	failing := &mockPhase{title: "failing", runErr: errors.New("boom"), order: &order}
-	after := &mockPhase{title: "after", order: &order}
+	boom := errors.New("boom")
+	var order []string
+
+	failing := newTitledPhase("failing")
+	failing.RunCalls(func(context.Context) error {
+		order = append(order, "failing")
+		return boom
+	})
+	after := newTitledPhase("after")
+	after.RunCalls(func(context.Context) error {
+		order = append(order, "after")
+		return nil
+	})
 
 	m := &Manager{}
 	m.AddPhase(failing, after)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, failing.runErr) {
+	if !errors.Is(err, boom) {
 		t.Fatalf("expected wrapped 'boom' error, got: %v", err)
 	}
-	if after.executed {
+	if after.RunCallCount() != 0 {
 		t.Error("phase after failing phase was executed")
 	}
-	if len(order) != 1 || order[0] != "failing" {
+	if want := []string{"failing"}; !slices.Equal(order, want) {
 		t.Fatalf("unexpected execution order: %v", order)
 	}
 }
@@ -243,45 +220,36 @@ func TestManager_ErrorStopsExecution(t *testing.T) {
 func TestManager_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	canceller := &mockPhase{title: "canceller"}
-	// Override Run to cancel context during execution.
-	cancelPhase := &contextCancelPhase{title: "canceller", cancel: cancel}
-	checker := &mockPhase{title: "checker"}
+	canceller := newTitledPhase("canceller")
+	canceller.RunCalls(func(context.Context) error {
+		cancel()
+		return nil
+	})
+	checker := newTitledPhase("checker")
 
 	m := &Manager{}
-	m.AddPhase(cancelPhase, checker)
+	m.AddPhase(canceller, checker)
 
-	err := m.Run(ctx, &v1beta1.Cluster{})
-	// The checker phase's Run will be called but should see a cancelled context.
-	// The manager itself doesn't check ctx between phases, so we verify the
-	// cancellation propagated by checking the context is done.
-	_ = err
-	_ = canceller
+	_ = m.Run(ctx, &v1beta1.Cluster{})
 
 	if ctx.Err() == nil {
-		t.Error("context should be cancelled")
+		t.Fatal("context should be cancelled")
 	}
-}
-
-// contextCancelPhase cancels the context during Run.
-type contextCancelPhase struct {
-	title  string
-	cancel context.CancelFunc
-}
-
-func (c *contextCancelPhase) Title() string { return c.title }
-func (c *contextCancelPhase) Run(_ context.Context) error {
-	c.cancel()
-	return nil
+	if checker.RunCallCount() != 1 {
+		t.Fatalf("checker Run() called %d times, want 1", checker.RunCallCount())
+	}
+	if err := checker.RunArgsForCall(0).Err(); !errors.Is(err, context.Canceled) {
+		t.Errorf("checker received context error %v, want context.Canceled", err)
+	}
 }
 
 func TestManager_SetConfigPropagated(t *testing.T) {
-	phase := &mockConfigPhase{
-		mockPhase: mockPhase{title: "config-aware"},
-	}
+	p := &FakeFullPhase{}
+	p.TitleReturns("config-aware")
+	p.ShouldRunReturns(true)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	cfg := &v1beta1.Cluster{
 		Metadata: v1beta1.ClusterMetadata{Name: "test-cluster"},
@@ -290,102 +258,120 @@ func TestManager_SetConfigPropagated(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if phase.receivedConfig == nil {
-		t.Fatal("SetConfig was not called")
+	if p.SetConfigCallCount() != 1 {
+		t.Fatalf("SetConfig() called %d times, want 1", p.SetConfigCallCount())
 	}
-	if phase.receivedConfig.Metadata.Name != "test-cluster" {
-		t.Errorf("expected config name 'test-cluster', got %q", phase.receivedConfig.Metadata.Name)
+	if got := p.SetConfigArgsForCall(0); got != cfg {
+		t.Errorf("SetConfig received %p, want %p", got, cfg)
+	}
+	if name := p.SetConfigArgsForCall(0).Metadata.Name; name != "test-cluster" {
+		t.Errorf("expected config name 'test-cluster', got %q", name)
 	}
 }
 
 func TestManager_BeforeHookError(t *testing.T) {
-	phase := &mockBeforeAfterPhase{
-		mockPhase: mockPhase{title: "hook-phase"},
-		beforeErr: errors.New("before failed"),
-	}
+	beforeErr := errors.New("before failed")
+
+	p := &FakeFullPhase{}
+	p.TitleReturns("hook-phase")
+	p.ShouldRunReturns(true)
+	p.BeforeReturns(beforeErr)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
-	if err == nil {
-		t.Fatal("expected error from Before hook")
+	if !errors.Is(err, beforeErr) {
+		t.Fatalf("expected wrapped 'before failed' error, got: %v", err)
 	}
-	if !phase.beforeCalled {
-		t.Error("Before() was not called")
+	if p.BeforeCallCount() != 1 {
+		t.Errorf("Before() called %d times, want 1", p.BeforeCallCount())
 	}
-	if phase.executed {
+	if p.RunCallCount() != 0 {
 		t.Error("Run() should not be called when Before() fails")
 	}
-	if phase.afterCalled {
+	if p.AfterCallCount() != 0 {
 		t.Error("After() should not be called when Before() fails")
+	}
+	if p.CleanUpCallCount() != 0 {
+		t.Error("a phase that was never entered must not be cleaned up")
 	}
 }
 
 func TestManager_AfterHookError(t *testing.T) {
-	phase := &mockBeforeAfterPhase{
-		mockPhase: mockPhase{title: "hook-phase"},
-		afterErr:  errors.New("after failed"),
-	}
+	afterErr := errors.New("after failed")
+
+	p := &FakeFullPhase{}
+	p.TitleReturns("hook-phase")
+	p.ShouldRunReturns(true)
+	p.AfterReturns(afterErr)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	err := m.Run(context.Background(), &v1beta1.Cluster{})
-	if err == nil {
-		t.Fatal("expected error from After hook")
+	if !errors.Is(err, afterErr) {
+		t.Fatalf("expected wrapped 'after failed' error, got: %v", err)
 	}
-	if !phase.executed {
+	if p.RunCallCount() != 1 {
 		t.Error("Run() should have been called")
 	}
-	if !phase.afterCalled {
+	if p.AfterCallCount() != 1 {
 		t.Error("After() should have been called")
+	}
+	if p.CleanUpCallCount() != 1 {
+		t.Error("the entered phase should be rolled back when After() fails")
 	}
 }
 
 func TestManager_DryRunMode(t *testing.T) {
-	phase := &mockDryRunPhase{
-		mockPhase: mockPhase{title: "dry-runnable"},
-	}
+	p := &FakeFullPhase{}
+	p.TitleReturns("dry-runnable")
+	p.ShouldRunReturns(true)
 
 	m := &Manager{DryRun: true}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !phase.dryRunCalled {
+	if p.DryRunCallCount() != 1 {
 		t.Error("DryRun() was not called in dry-run mode")
 	}
-	if phase.executed {
+	if p.RunCallCount() != 0 {
 		t.Error("Run() should not be called in dry-run mode when DryRun() exists")
+	}
+	if p.BeforeCallCount() != 1 {
+		t.Error("Before() should still run in dry-run mode")
+	}
+	if p.CleanUpCallCount() != 0 {
+		t.Error("CleanUp() must not run in dry-run mode")
 	}
 }
 
 func TestManager_DryRunModeWithoutDryRunInterface(t *testing.T) {
-	phase := &mockPhase{title: "not-dry-runnable"}
+	p := newTitledPhase("not-dry-runnable")
 
 	m := &Manager{DryRun: true}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	if err := m.Run(context.Background(), &v1beta1.Cluster{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !phase.executed {
+	if p.RunCallCount() != 1 {
 		t.Error("Run() should be called when DryRun is true but phase lacks DryRun()")
 	}
 }
 
 func TestManager_FullPhaseLifecycle(t *testing.T) {
-	phase := &mockFullPhase{
-		title:     "full",
-		shouldRun: true,
-	}
+	p := &FakeFullPhase{}
+	p.TitleReturns("full")
+	p.ShouldRunReturns(true)
 
 	m := &Manager{}
-	m.AddPhase(phase)
+	m.AddPhase(p)
 
 	cfg := &v1beta1.Cluster{
 		Metadata: v1beta1.ClusterMetadata{Name: "lifecycle-test"},
@@ -394,24 +380,41 @@ func TestManager_FullPhaseLifecycle(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if phase.receivedConfig == nil || phase.receivedConfig.Metadata.Name != "lifecycle-test" {
-		t.Error("SetConfig not called correctly")
+	tests := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"Prepare", p.PrepareCallCount(), 1},
+		{"ShouldRun", p.ShouldRunCallCount(), 1},
+		{"Before", p.BeforeCallCount(), 1},
+		{"Run", p.RunCallCount(), 1},
+		{"After", p.AfterCallCount(), 1},
+		{"DryRun", p.DryRunCallCount(), 0},
+		// CleanUp is a rollback hook, so a successful run must not call it.
+		{"CleanUp", p.CleanUpCallCount(), 0},
 	}
-	if !phase.prepared {
-		t.Error("Prepare not called")
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s() called %d times, want %d", tt.name, tt.got, tt.want)
+		}
 	}
-	if !phase.executed {
-		t.Error("Run not called")
+
+	if got := p.SetConfigCallCount(); got != 1 {
+		t.Fatalf("SetConfig() called %d times, want 1", got)
 	}
-	if !phase.cleanedUp {
-		t.Error("CleanUp not called")
+	if got := p.SetConfigArgsForCall(0); got != cfg {
+		t.Errorf("SetConfig received %p, want %p", got, cfg)
+	}
+	if name := p.SetConfigArgsForCall(0).Metadata.Name; name != "lifecycle-test" {
+		t.Errorf("expected config name 'lifecycle-test', got %q", name)
 	}
 }
 
 func TestPhases_Add(t *testing.T) {
 	var phases Phases
-	p1 := &mockPhase{title: "a"}
-	p2 := &mockPhase{title: "b"}
+	p1 := newTitledPhase("a")
+	p2 := newTitledPhase("b")
 	phases.Add(p1, p2)
 
 	if len(phases) != 2 {
@@ -423,9 +426,9 @@ func TestPhases_Add(t *testing.T) {
 }
 
 func TestPhases_AddBefore(t *testing.T) {
-	p1 := &mockPhase{title: "a"}
-	p2 := &mockPhase{title: "b"}
-	insert := &mockPhase{title: "inserted"}
+	p1 := newTitledPhase("a")
+	p2 := newTitledPhase("b")
+	insert := newTitledPhase("inserted")
 
 	var phases Phases
 	phases.Add(p1, p2)
@@ -440,9 +443,9 @@ func TestPhases_AddBefore(t *testing.T) {
 }
 
 func TestPhases_AddAfter(t *testing.T) {
-	p1 := &mockPhase{title: "a"}
-	p2 := &mockPhase{title: "b"}
-	insert := &mockPhase{title: "inserted"}
+	p1 := newTitledPhase("a")
+	p2 := newTitledPhase("b")
+	insert := newTitledPhase("inserted")
 
 	var phases Phases
 	phases.Add(p1, p2)
@@ -457,9 +460,9 @@ func TestPhases_AddAfter(t *testing.T) {
 }
 
 func TestPhases_AddBeforeNotFound(t *testing.T) {
-	p1 := &mockPhase{title: "a"}
-	notInList := &mockPhase{title: "missing"}
-	insert := &mockPhase{title: "appended"}
+	p1 := newTitledPhase("a")
+	notInList := newTitledPhase("missing")
+	insert := newTitledPhase("appended")
 
 	var phases Phases
 	phases.Add(p1)
@@ -474,9 +477,9 @@ func TestPhases_AddBeforeNotFound(t *testing.T) {
 }
 
 func TestPhases_AddAfterNotFound(t *testing.T) {
-	p1 := &mockPhase{title: "a"}
-	notInList := &mockPhase{title: "missing"}
-	insert := &mockPhase{title: "appended"}
+	p1 := newTitledPhase("a")
+	notInList := newTitledPhase("missing")
+	insert := newTitledPhase("appended")
 
 	var phases Phases
 	phases.Add(p1)
