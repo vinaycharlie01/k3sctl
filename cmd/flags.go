@@ -1,0 +1,135 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
+	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/vinaycharlie01/k3sctl/pkg/manifest"
+)
+
+func GlobalFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.BoolFlag{
+			Name:    "debug",
+			Usage:   "Enable debug logging",
+			EnvVars: []string{"K3SCTL_DEBUG"},
+		},
+		&cli.BoolFlag{
+			Name:    "trace",
+			Usage:   "Enable trace logging",
+			EnvVars: []string{"K3SCTL_TRACE"},
+		},
+		&cli.BoolFlag{
+			Name:  "no-redact",
+			Usage: "Disable log redaction",
+		},
+	}
+}
+
+func configFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:      "config",
+		Aliases:   []string{"c"},
+		Usage:     "Path to cluster configuration `FILE`",
+		Value:     "k3sctl.yaml",
+		TakesFile: true,
+		EnvVars:   []string{"K3SCTL_CONFIG"},
+	}
+}
+
+func concurrencyFlag() *cli.IntFlag {
+	return &cli.IntFlag{
+		Name:  "concurrency",
+		Usage: "Maximum number of parallel hosts to process",
+		Value: 30,
+	}
+}
+
+func concurrentUploadsFlag() *cli.IntFlag {
+	return &cli.IntFlag{
+		Name:  "concurrent-uploads",
+		Usage: "Maximum number of concurrent file uploads",
+		Value: 5,
+	}
+}
+
+func dryRunFlag() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:  "dry-run",
+		Usage: "Print what would be done without making changes",
+	}
+}
+
+func initLogging(ctx *cli.Context) error {
+	log.SetOutput(os.Stderr)
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339,
+	})
+
+	if ctx.Bool("trace") {
+		log.SetLevel(log.TraceLevel)
+	} else if ctx.Bool("debug") {
+		log.SetLevel(log.DebugLevel)
+	} else {
+		log.SetLevel(log.InfoLevel)
+	}
+
+	return nil
+}
+
+func loadConfig(configPath string) (*v1beta1.Cluster, error) {
+	paths, err := filepath.Glob(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("glob config path: %w", err)
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("config file not found: %s", configPath)
+	}
+
+	reader := &manifest.Reader{}
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			return nil, fmt.Errorf("open config %s: %w", p, err)
+		}
+		defer f.Close()
+		if err := reader.Parse(f); err != nil {
+			return nil, fmt.Errorf("parse config %s: %w", p, err)
+		}
+	}
+
+	resources := reader.Resources()
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("no documents found in config")
+	}
+
+	cfg := &v1beta1.Cluster{}
+	if err := resources[0].Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	cfg.SetDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func displayLogo() {
+	logo := `
+ _    _____          _   _
+| | _|___ / ___  ___| |_| |
+| |/ / |_ \/ __|/ __| __| |
+|   < ___) \__ \ (__| |_| |
+|_|\_\____/|___/\___|\__|_|
+`
+	fmt.Fprintln(os.Stderr, strings.TrimRight(logo, "\n"))
+}

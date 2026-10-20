@@ -1,0 +1,50 @@
+package binprovider
+
+import (
+	"context"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+
+	"github.com/k0sproject/rig/v2/remotefs"
+	log "github.com/sirupsen/logrus"
+)
+
+type stagedFile struct {
+	host Host
+	path string
+}
+
+func (s *stagedFile) CleanUp(ctx context.Context) error {
+	if s.path == "" {
+		return nil
+	}
+	log.Debugf("%s: cleaning up staged binary at %s", s.host, s.path)
+	return s.host.DeleteFile(s.path)
+}
+
+func needsUpgrade(host Host, targetVersion string) bool {
+	installed := host.InstalledK3sVersion()
+	if installed == "" {
+		return true
+	}
+	return installed != targetVersion
+}
+
+func stageTempPath(host Host, version string) string {
+	return filepath.Join("/tmp", fmt.Sprintf("k3s-%s.tmp", version))
+}
+
+func stageUpload(ctx context.Context, host Host, localPath, remotePath string) error {
+	log.Infof("%s: uploading k3s binary from %s", host, localPath)
+	if err := host.Sudo().FS().MkdirAll(filepath.Dir(remotePath), fs.FileMode(0755)); err != nil {
+		return fmt.Errorf("create directory for binary: %w", err)
+	}
+
+	return remotefs.Upload(host.Sudo().FS(), localPath, remotePath)
+}
+
+func stageDownload(ctx context.Context, host Host, url, remotePath string) error {
+	log.Infof("%s: downloading k3s binary from %s", host, url)
+	return host.DownloadURL(url, remotePath)
+}
