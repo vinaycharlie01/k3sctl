@@ -117,7 +117,7 @@ func downloadToFile(ctx context.Context, url, version, arch string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
@@ -128,13 +128,16 @@ func downloadToFile(ctx context.Context, url, version, arch string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(tmpPath)
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("write binary: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("close temp file: %w", err)
+	}
 
 	if err := os.Rename(tmpPath, localPath); err != nil {
 		return "", fmt.Errorf("rename temp file: %w", err)

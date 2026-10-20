@@ -32,8 +32,16 @@ func (p *InstallBinaries) ShouldRun() bool {
 
 func (p *InstallBinaries) Run(ctx context.Context) error {
 	return p.parallelDo(ctx, p.hosts, func(ctx context.Context, h *cluster.Host) error {
+		provider := h.Metadata.BinaryProvider
+		if provider == nil {
+			return fmt.Errorf("%s: no binary provider configured", h)
+		}
+
 		binaryDir := h.Configurer.K3sBinaryPath()
-		stagedPath := fmt.Sprintf("/tmp/k3sctl-staged-k3s-%s", h.Metadata.Arch)
+		stagedPath := provider.StagedPath()
+		if stagedPath == "" {
+			return fmt.Errorf("%s: no staged binary path", h)
+		}
 
 		if !h.Sudo().FS().FileExist(stagedPath) {
 			return fmt.Errorf("%s: staged binary not found at %s", h, stagedPath)

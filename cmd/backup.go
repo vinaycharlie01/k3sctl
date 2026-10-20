@@ -35,7 +35,7 @@ func backupCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("create backup file: %w", err)
 			}
-			defer outFile.Close()
+			defer func() { _ = outFile.Close() }()
 
 			m := action.Backup(action.BackupOptions{
 				Out: outFile,

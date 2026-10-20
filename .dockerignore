@@ -1,0 +1,9 @@
+.git
+.gitignore
+.github
+.planning
+roadmap
+dist
+k3sctl
+Dockerfile
+.dockerignore

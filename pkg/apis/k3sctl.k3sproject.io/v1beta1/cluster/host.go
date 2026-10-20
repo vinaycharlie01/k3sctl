@@ -6,10 +6,12 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	rig "github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/protocol/openssh"
+	"github.com/k0sproject/rig/v2/protocol/ssh"
+	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
 	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/configurer"
@@ -20,6 +22,7 @@ type BinaryProvider interface {
 	IsUpload() bool
 	Stage(ctx context.Context) error
 	CleanUp(ctx context.Context) error
+	StagedPath() string
 }
 
 type Role string
@@ -29,8 +32,30 @@ const (
 	RoleAgent  Role = "agent"
 )
 
+// ConnectionConfig describes how to reach a host. It mirrors
+// rig.CompositeConfig but deliberately does not implement UnmarshalYAML:
+// yaml.v2 passes the entire containing mapping to a custom unmarshaller on an
+// inline field, and rig v2.0.0-alpha.2's implementation would then reject
+// host-level keys such as "role" during a strict unmarshal.
+type ConnectionConfig struct {
+	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
+	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
+	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
+	Localhost bool            `yaml:"localhost,omitempty"`
+}
+
+func (c *ConnectionConfig) toRig() *rig.CompositeConfig {
+	return &rig.CompositeConfig{
+		SSH:       c.SSH,
+		WinRM:     c.WinRM,
+		OpenSSH:   c.OpenSSH,
+		Localhost: c.Localhost,
+	}
+}
+
 type Host struct {
-	rig.ClientWithConfig `yaml:",inline"`
+	ConnectionConfig `yaml:",inline"`
+	*rig.Client      `yaml:"-"`
 
 	Role             Role              `yaml:"role" default:"server"`
 	PrivateAddress   string            `yaml:"privateAddress,omitempty"`
@@ -51,8 +76,6 @@ type Host struct {
 
 	Configurer configurer.Configurer `yaml:"-"`
 	Metadata   HostMetadata          `yaml:"-"`
-
-	configLock sync.Mutex
 }
 
 type HostMetadata struct {
@@ -64,13 +87,17 @@ type HostMetadata struct {
 	K3sServiceRunning   bool
 	K3sServiceInstalled bool
 	K3sExistingConfig   string
-	NodeToken           string
-	Ready               bool
-	IsLeader            bool
-	KubernetesNodeName  string
-	NeedsUpgrade        bool
-	NeedsReinstall      bool
-	BinaryProvider      BinaryProvider
+	// K3sCurrentInstallFlags holds the install flags found in the running
+	// systemd unit. K3sInstallFlagsKnown is false when the unit could not be read.
+	K3sCurrentInstallFlags Flags
+	K3sInstallFlagsKnown   bool
+	NodeToken              string
+	Ready                  bool
+	IsLeader               bool
+	KubernetesNodeName     string
+	NeedsUpgrade           bool
+	NeedsReinstall         bool
+	BinaryProvider         BinaryProvider
 }
 
 func (h *Host) String() string {
@@ -84,26 +111,26 @@ func (h *Host) String() string {
 }
 
 func (h *Host) Address() string {
-	if h.ConnectionConfig.SSH != nil {
-		return h.ConnectionConfig.SSH.Address
+	if h.SSH != nil {
+		return h.SSH.Address
 	}
-	if h.ConnectionConfig.OpenSSH != nil {
-		return h.ConnectionConfig.OpenSSH.Address
+	if h.OpenSSH != nil {
+		return h.OpenSSH.Address
 	}
-	if h.ConnectionConfig.Localhost {
+	if h.Localhost {
 		return "localhost"
 	}
 	return ""
 }
 
 func (h *Host) Protocol() string {
-	if h.ConnectionConfig.SSH != nil {
+	if h.SSH != nil {
 		return "ssh"
 	}
-	if h.ConnectionConfig.OpenSSH != nil {
+	if h.OpenSSH != nil {
 		return "openssh"
 	}
-	if h.ConnectionConfig.Localhost {
+	if h.Localhost {
 		return "localhost"
 	}
 	return "unknown"
@@ -118,7 +145,14 @@ func (h *Host) IsAgent() bool {
 }
 
 func (h *Host) Connect(ctx context.Context) error {
-	if err := h.ClientWithConfig.Connect(ctx); err != nil {
+	if h.Client == nil {
+		client, err := rig.NewClient(rig.WithConnectionConfigurer(h.toRig()))
+		if err != nil {
+			return fmt.Errorf("create client for %s: %w", h, err)
+		}
+		h.Client = client
+	}
+	if err := h.Client.Connect(ctx); err != nil {
 		return fmt.Errorf("connect to %s: %w", h, err)
 	}
 	return nil
@@ -206,11 +240,17 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func (h *Host) DrainNode(leader *Host, opts interface{}) error {
+func (h *Host) DrainNode(leader *Host, opts *DrainOption) error {
+	if opts == nil {
+		opts = (&Options{}).GetDrainOptions()
+	}
+	if !opts.Enabled {
+		log.Infof("%s: node drain disabled, skipping", h)
+		return nil
+	}
 	log.Infof("%s: draining node", h)
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"drain %s --ignore-daemonsets --delete-emptydir-data --timeout=5m --force",
-		shellQuote(h.KubernetesNodeName()))
+		"drain %s %s", shellQuote(h.KubernetesNodeName()), opts.ToKubectlArgs())
 	return leader.Sudo().Exec(cmd)
 }
 
@@ -245,7 +285,7 @@ func (h *Host) CheckHTTPStatus(ctx context.Context, url string, expected ...int)
 	if err != nil {
 		return fmt.Errorf("HTTP GET %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	for _, exp := range expected {
 		if resp.StatusCode == exp {

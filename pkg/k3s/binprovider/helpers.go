@@ -15,6 +15,12 @@ type stagedFile struct {
 	path string
 }
 
+// StagedPath returns the path of the staged binary on the host, or an empty
+// string when nothing has been staged yet.
+func (s *stagedFile) StagedPath() string {
+	return s.path
+}
+
 func (s *stagedFile) CleanUp(ctx context.Context) error {
 	if s.path == "" {
 		return nil

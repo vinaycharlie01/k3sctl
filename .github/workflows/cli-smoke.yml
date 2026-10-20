@@ -1,0 +1,151 @@
+name: CLI Smoke Test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-smoke:
+    name: CLI smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build CLI
+        run: go build -trimpath -o k3sctl .
+
+      - name: Binary exists and is executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          [ -x ./k3sctl ] || fail "k3sctl binary was not produced or is not executable"
+          pass "binary built"
+
+          ./k3sctl version > version.out
+          grep -q '^k3sctl version:' version.out || fail "version output missing 'k3sctl version:'"
+          pass "k3sctl version reports correctly"
+
+          ./k3sctl --version | grep -q 'k3sctl version' || fail "--version output unexpected"
+          pass "--version works"
+
+      - name: Command surface is complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          ./k3sctl --help > help.out
+          for cmd in version apply kubeconfig reset backup config init completion; do
+            grep -qE "^[[:space:]]+${cmd}[[:space:]]" help.out || fail "help is missing command: ${cmd}"
+          done
+          pass "all top-level commands listed in help"
+
+          for cmd in apply kubeconfig reset backup init version; do
+            ./k3sctl "${cmd}" --help > /dev/null || fail "${cmd} --help failed"
+          done
+          ./k3sctl config --help | grep -q 'status' || fail "config help is missing status subcommand"
+          pass "subcommand help works offline"
+
+      - name: Shell completion generates output
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          ./k3sctl completion bash | grep -q '_k3sctl_completions' || fail "bash completion script invalid"
+          ./k3sctl completion zsh | grep -q '_k3sctl(' || fail "zsh completion script invalid"
+          pass "bash and zsh completion scripts"
+
+      - name: init generates a valid cluster config
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          ./k3sctl init --name smoke --address 10.0.0.1 --agent-address 10.0.0.2 --agent > smoke.yaml
+
+          grep -q '^apiVersion: k3sctl.k3sproject.io/v1beta1$' smoke.yaml || fail "unexpected apiVersion"
+          grep -q '^kind: Cluster$' smoke.yaml || fail "unexpected kind"
+          grep -q 'name: smoke' smoke.yaml || fail "cluster name missing"
+          grep -q 'address: 10.0.0.1' smoke.yaml || fail "server address missing"
+          grep -q 'address: 10.0.0.2' smoke.yaml || fail "agent address missing"
+          [ "$(grep -c 'role: server' smoke.yaml)" -eq 1 ] || fail "expected exactly one server role"
+          [ "$(grep -c 'role: agent' smoke.yaml)" -eq 1 ] || fail "expected exactly one agent role"
+          pass "init --agent produces server + agent"
+
+          ./k3sctl init > single.yaml
+          [ "$(grep -c '^  - role:' single.yaml)" -eq 1 ] || fail "default init should create exactly one host"
+          grep -q 'role: server' single.yaml || fail "default host should be a server"
+          pass "init default produces one server"
+
+      - name: Invalid input is rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          if ./k3sctl apply -c does-not-exist.yaml > missing.log 2>&1; then
+            fail "apply with a missing config should fail"
+          fi
+          grep -qi 'config file not found' missing.log || fail "unexpected error for missing config"
+          pass "missing config rejected"
+
+          printf 'apiVersion: v1\nkind: ConfigMap\n' > wrong.yaml
+          if ./k3sctl apply -c wrong.yaml > wrong.log 2>&1; then
+            fail "apply with a non-Cluster document should fail"
+          fi
+          grep -q 'expected exactly one' wrong.log || fail "unexpected error for non-Cluster document"
+          pass "non-Cluster document rejected"
+
+          printf 'kind: Cluster\n  bad: [\n' > invalid.yaml
+          if ./k3sctl reset -c invalid.yaml > invalid.log 2>&1; then
+            fail "reset with invalid YAML should fail"
+          fi
+          pass "invalid YAML rejected"
+
+          bin="$(pwd)/k3sctl"
+          tmpdir="$(mktemp -d)"
+          if ( cd "${tmpdir}" && "${bin}" apply > "${tmpdir}/default.log" 2>&1 ); then
+            fail "apply with no config file should fail"
+          fi
+          grep -q 'config file not found: k3sctl.yaml' "${tmpdir}/default.log" || fail "default config path error unexpected"
+          pass "default config path lookup fails cleanly"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-smoke-${{ matrix.os }}
+          path: |
+            smoke.yaml
+            single.yaml
+            *.log
+            *.out
+          if-no-files-found: ignore
+          retention-days: 7

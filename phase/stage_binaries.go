@@ -50,7 +50,9 @@ func (p *StageBinaries) Run(ctx context.Context) error {
 func (p *StageBinaries) CleanUp() {
 	for _, h := range p.hosts {
 		if h.Metadata.BinaryProvider != nil {
-			h.Metadata.BinaryProvider.CleanUp(context.Background())
+			if err := h.Metadata.BinaryProvider.CleanUp(context.Background()); err != nil {
+				log.Warnf("%s: clean up staged binary: %v", h, err)
+			}
 		}
 	}
 }

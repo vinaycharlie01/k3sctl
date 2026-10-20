@@ -237,5 +237,6 @@ func TestGenerateAgentConfig_EmptyToken(t *testing.T) {
 	var config map[string]interface{}
 	require.NoError(t, yaml.Unmarshal(data, &config))
 
-	assert.Equal(t, "", config["token"])
+	_, hasToken := config["token"]
+	assert.False(t, hasToken, "empty token should be omitted from agent config")
 }

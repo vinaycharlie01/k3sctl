@@ -55,7 +55,7 @@ func PrintStatus(w io.Writer, cfg *v1beta1.Cluster) {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", h, h.Role, status, version)
 	}
-	tw.Flush()
+	_ = tw.Flush()
 }
 
 func hostStatus(h *cluster.Host) string {

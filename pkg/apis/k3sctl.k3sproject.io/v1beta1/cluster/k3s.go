@@ -81,8 +81,12 @@ func (k *K3s) GenerateAgentConfig(host *Host, serverAddr, clusterToken string) (
 		}
 	}
 
-	config["server"] = fmt.Sprintf("https://%s:6443", serverAddr)
-	config["token"] = clusterToken
+	if serverAddr != "" {
+		config["server"] = fmt.Sprintf("https://%s:6443", serverAddr)
+	}
+	if clusterToken != "" {
+		config["token"] = clusterToken
+	}
 
 	if host.PrivateAddress != "" {
 		config["node-ip"] = host.PrivateAddress

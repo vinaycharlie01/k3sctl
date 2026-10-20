@@ -43,6 +43,15 @@ func (p *GatherK3sFacts) Run(ctx context.Context) error {
 			}
 		}
 
+		unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", serviceName)
+		if h.Sudo().FS().FileExist(unitPath) {
+			output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s", shellQuote(unitPath)))
+			if err == nil {
+				h.Metadata.K3sCurrentInstallFlags = parseExecStartFlags(output)
+				h.Metadata.K3sInstallFlagsKnown = true
+			}
+		}
+
 		if h.IsServer() {
 			tokenPath := h.Configurer.K3sTokenPath()
 			output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s 2>/dev/null", shellQuote(tokenPath)))
@@ -75,4 +84,25 @@ func parseK3sVersion(output string) string {
 		}
 	}
 	return ""
+}
+
+// parseExecStartFlags extracts the K3s command line flags from a systemd unit's
+// ExecStart directive, dropping the binary path and the server/agent subcommand.
+func parseExecStartFlags(unit string) cluster.Flags {
+	flags := cluster.Flags{}
+	for _, line := range strings.Split(unit, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ExecStart=") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "ExecStart="))
+		if len(fields) < 2 {
+			continue
+		}
+		if fields[1] != "server" && fields[1] != "agent" {
+			continue
+		}
+		flags = append(flags, fields[2:]...)
+	}
+	return flags
 }

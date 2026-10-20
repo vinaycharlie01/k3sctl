@@ -1,5 +1,10 @@
 package cluster
 
+import (
+	"fmt"
+	"strings"
+)
+
 type Options struct {
 	Drain       *DrainOption       `yaml:"drain,omitempty"`
 	Concurrency *ConcurrencyOption `yaml:"concurrency,omitempty"`
@@ -35,6 +40,48 @@ func (o *Options) GetDrainOptions() *DrainOption {
 		}
 	}
 	return o.Drain
+}
+
+// UnmarshalYAML applies defaults before decoding so that partially specified
+// drain options keep the documented default behavior.
+func (d *DrainOption) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	tmp := DrainOption{
+		Enabled:          true,
+		Timeout:          "5m",
+		GracePeriod:      -1,
+		DeleteEmptyDir:   true,
+		IgnoreDaemonSets: true,
+	}
+	type plain DrainOption
+	if err := unmarshal((*plain)(&tmp)); err != nil {
+		return err
+	}
+	*d = tmp
+	return nil
+}
+
+// ToKubectlArgs renders the options as kubectl drain arguments.
+func (d *DrainOption) ToKubectlArgs() string {
+	if d == nil {
+		d = (&Options{}).GetDrainOptions()
+	}
+	args := []string{"--force"}
+	if d.GracePeriod >= 0 {
+		args = append(args, fmt.Sprintf("--grace-period=%d", d.GracePeriod))
+	}
+	if d.Timeout != "" {
+		args = append(args, "--timeout="+d.Timeout)
+	}
+	if d.DeleteEmptyDir {
+		args = append(args, "--delete-emptydir-data")
+	}
+	if d.IgnoreDaemonSets {
+		args = append(args, "--ignore-daemonsets")
+	}
+	if d.DisableEviction {
+		args = append(args, "--disable-eviction")
+	}
+	return strings.Join(args, " ")
 }
 
 func (o *Options) GetConcurrency() int {

@@ -92,7 +92,7 @@ func IsValidK3sVersion(ctx context.Context, version string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return resp.StatusCode == http.StatusOK, nil
 }
@@ -109,7 +109,7 @@ func fetchReleases(ctx context.Context, url string) ([]release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)

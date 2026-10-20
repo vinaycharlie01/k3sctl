@@ -69,7 +69,7 @@ func applyCommand() *cli.Command {
 				if err != nil {
 					return fmt.Errorf("create kubeconfig file: %w", err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				kubeconfigOut = f
 			}
 

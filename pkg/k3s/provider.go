@@ -12,6 +12,7 @@ type BinaryProvider interface {
 	IsUpload() bool
 	Stage(ctx context.Context) error
 	CleanUp(ctx context.Context) error
+	StagedPath() string
 }
 
 func NewBinaryProvider(h *cluster.Host, k3s *cluster.K3s) BinaryProvider {

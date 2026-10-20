@@ -43,21 +43,11 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 
 	kubeconfig := output
 
-	if p.APIAddress != "" {
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://127.0.0.1:6443", p.APIAddress)
-	} else {
-		addr := h.Address()
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://127.0.0.1:6443", fmt.Sprintf("https://%s:6443", addr))
+	apiAddress := p.APIAddress
+	if apiAddress == "" {
+		apiAddress = fmt.Sprintf("https://%s:6443", h.Address())
 	}
-
-	if p.Cluster != "" {
-		kubeconfig = strings.ReplaceAll(kubeconfig, "cluster: default", fmt.Sprintf("cluster: %s", p.Cluster))
-		kubeconfig = strings.ReplaceAll(kubeconfig, "name: default", fmt.Sprintf("name: %s", p.Cluster))
-	}
-
-	if p.User != "" {
-		kubeconfig = strings.ReplaceAll(kubeconfig, "user: default", fmt.Sprintf("user: %s", p.User))
-	}
+	kubeconfig = rewriteKubeconfig(kubeconfig, apiAddress, p.User, p.Cluster)
 
 	if p.Out != nil {
 		if _, err := io.WriteString(p.Out, kubeconfig); err != nil {
@@ -69,4 +59,18 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 	log.Infof("kubeconfig retrieved successfully")
 
 	return nil
+}
+
+// rewriteKubeconfig points a k3s-generated kubeconfig at the given API
+// address and optionally renames the default user and cluster.
+func rewriteKubeconfig(raw, apiAddress, user, cluster string) string {
+	out := strings.ReplaceAll(raw, "https://127.0.0.1:6443", apiAddress)
+	if cluster != "" {
+		out = strings.ReplaceAll(out, "cluster: default", "cluster: "+cluster)
+		out = strings.ReplaceAll(out, "name: default", "name: "+cluster)
+	}
+	if user != "" {
+		out = strings.ReplaceAll(out, "user: default", "user: "+user)
+	}
+	return out
 }

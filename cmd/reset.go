@@ -41,7 +41,7 @@ func resetCommand() *cli.Command {
 				fmt.Println("This will remove K3s from all configured hosts.")
 				fmt.Print("Are you sure? (y/N): ")
 				var answer string
-				fmt.Scanln(&answer)
+				_, _ = fmt.Scanln(&answer)
 				if answer != "y" && answer != "Y" {
 					return fmt.Errorf("reset cancelled")
 				}

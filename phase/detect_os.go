@@ -26,7 +26,7 @@ func (p *DetectOS) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: not connected", h)
 		}
 
-		osRelease, err := h.Client.OS()
+		osRelease, err := h.OS()
 		if err != nil {
 			return fmt.Errorf("%s: detect OS: %w", h, err)
 		}
