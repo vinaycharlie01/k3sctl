@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -63,13 +64,16 @@ func applyCommand() *cli.Command {
 				return err
 			}
 
-			var kubeconfigOut *os.File
+			// Keep this typed as io.Writer: a nil *os.File assigned to the
+			// interface would be non-nil, so Apply would add the kubeconfig
+			// phase and writing would fail on a nil file handle.
+			var kubeconfigOut io.Writer
 			if path := ctx.String("kubeconfig-out"); path != "" {
 				f, err := os.Create(path)
 				if err != nil {
 					return fmt.Errorf("create kubeconfig file: %w", err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				kubeconfigOut = f
 			}
 

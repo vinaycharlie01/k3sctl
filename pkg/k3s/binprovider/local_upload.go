@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeBinaryCacher -o ./mocks/fake_binary_cacher.go . BinaryCacher
 type BinaryCacher interface {
 	CacheBinary(ctx context.Context, version, arch string) (string, error)
 	CachedBinaryPath(version, arch string) string
@@ -82,7 +83,7 @@ func (p *localUploadProvider) Stage(ctx context.Context) error {
 		}
 	}
 
-	remotePath := stageTempPath(p.host, p.version)
+	remotePath := stageTempPath(p.version)
 	log.Infof("%s: uploading k3s %s binary", p.host, p.version)
 	if err := stageUpload(ctx, p.host, localPath, remotePath); err != nil {
 		return fmt.Errorf("stage upload: %w", err)
@@ -117,7 +118,7 @@ func downloadToFile(ctx context.Context, url, version, arch string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
@@ -128,13 +129,16 @@ func downloadToFile(ctx context.Context, url, version, arch string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(tmpPath)
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("write binary: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("close temp file: %w", err)
+	}
 
 	if err := os.Rename(tmpPath, localPath); err != nil {
 		return "", fmt.Errorf("rename temp file: %w", err)

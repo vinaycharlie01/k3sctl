@@ -160,7 +160,7 @@ func TestResourceDefinitionUnmarshal(t *testing.T) {
 		Metadata   struct {
 			Name string `yaml:"name"`
 		} `yaml:"metadata"`
-		Spec map[string]interface{} `yaml:"spec"`
+		Spec map[string]any `yaml:"spec"`
 	}
 	require.NoError(t, res.Unmarshal(&out))
 	assert.Equal(t, "k3sctl.k3sproject.io/v1beta1", out.APIVersion)

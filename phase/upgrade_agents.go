@@ -59,7 +59,7 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 		}
 
 		log.Infof("%s: draining node", h)
-		if err := h.DrainNode(p.leader, p.Config.Spec.Options.Drain); err != nil {
+		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
 			log.Warnf("%s: drain failed: %v", h, err)
 		}
 	}
@@ -80,15 +80,17 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 	}
 
 	binaryDir := h.Configurer.K3sBinaryPath()
-	stagedPath := fmt.Sprintf("/tmp/k3sctl-staged-k3s-%s", h.Metadata.Arch)
-	if h.Sudo().FS().FileExist(stagedPath) {
-		if err := h.Sudo().Exec(fmt.Sprintf("install -m 0755 %s %s",
-			shellQuote(stagedPath),
-			shellQuote(binaryDir),
-		)); err != nil {
-			return fmt.Errorf("%s: install binary: %w", h, err)
+	if provider := h.Metadata.BinaryProvider; provider != nil {
+		stagedPath := provider.StagedPath()
+		if stagedPath != "" && h.Sudo().FS().FileExist(stagedPath) {
+			if err := h.Sudo().Exec(fmt.Sprintf("install -m 0755 %s %s",
+				shellQuote(stagedPath),
+				shellQuote(binaryDir),
+			)); err != nil {
+				return fmt.Errorf("%s: install binary: %w", h, err)
+			}
+			_ = h.Sudo().FS().Remove(stagedPath)
 		}
-		_ = h.Sudo().FS().Remove(stagedPath)
 	}
 
 	log.Infof("%s: starting K3s agent", h)
@@ -104,6 +106,7 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 	}
 
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
+	h.Metadata.NeedsUpgrade = false
 	log.Infof("%s: K3s agent upgraded", h)
 
 	return nil

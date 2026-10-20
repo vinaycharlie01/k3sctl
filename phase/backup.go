@@ -73,7 +73,7 @@ func (p *Backup) Run(_ context.Context) error {
 		if err != nil {
 			return fmt.Errorf("%s: open snapshot: %w", h, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		n, err := io.Copy(p.Out, f)
 		if err != nil {

@@ -43,7 +43,7 @@ func (p *InstallAgents) installAgent(ctx context.Context, h *cluster.Host) error
 	log.Infof("%s: installing K3s agent", h)
 
 	installFlags := h.K3sInstallFlags()
-	unitContent := k3sAgentUnit(h.Configurer.K3sBinaryPath(), installFlags)
+	unitContent := k3sAgentUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
 
 	if err := h.Sudo().FS().WriteFile(unitPath, []byte(unitContent), fs.FileMode(0644)); err != nil {
@@ -68,13 +68,14 @@ func (p *InstallAgents) installAgent(ctx context.Context, h *cluster.Host) error
 	}
 
 	log.Infof("%s: waiting for agent node to be ready", h)
-	if err := retry.Context(ctx, node.KubeNodeReadyFunc(h),
+	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for agent ready: %w", h, err)
 	}
 
 	h.Metadata.K3sServiceRunning = true
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
+	h.Metadata.NeedsUpgrade = false
 	log.Infof("%s: K3s agent installed and running", h)
 
 	return nil

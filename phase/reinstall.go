@@ -14,7 +14,9 @@ import (
 
 type Reinstall struct {
 	GenericPhase
-	hosts cluster.Hosts
+	NoDrain bool
+	hosts   cluster.Hosts
+	leader  *cluster.Host
 }
 
 func (p *Reinstall) Title() string {
@@ -22,6 +24,7 @@ func (p *Reinstall) Title() string {
 }
 
 func (p *Reinstall) Prepare() {
+	p.leader = p.Config.Spec.K3sLeader()
 	p.hosts = p.Config.Spec.Hosts.Filter(func(h *cluster.Host) bool {
 		return h.Metadata.K3sServiceRunning && h.Metadata.NeedsReinstall
 	})
@@ -43,13 +46,27 @@ func (p *Reinstall) Run(ctx context.Context) error {
 func (p *Reinstall) reinstall(ctx context.Context, h *cluster.Host) error {
 	log.Infof("%s: reinstalling K3s service with updated flags", h)
 
+	if h.IsAgent() && !p.NoDrain && p.leader != nil {
+		if err := h.CordonNode(p.leader); err != nil {
+			log.Warnf("%s: cordon failed: %v", h, err)
+		}
+		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+			log.Warnf("%s: drain failed: %v", h, err)
+		}
+		defer func() {
+			if err := h.UncordonNode(p.leader); err != nil {
+				log.Warnf("%s: uncordon failed: %v", h, err)
+			}
+		}()
+	}
+
 	installFlags := h.K3sInstallFlags()
 
 	var unitContent string
 	if h.IsServer() {
-		unitContent = k3sServerUnit(h.Configurer.K3sBinaryPath(), installFlags)
+		unitContent = k3sServerUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
 	} else {
-		unitContent = k3sAgentUnit(h.Configurer.K3sBinaryPath(), installFlags)
+		unitContent = k3sAgentUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
 	}
 
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
@@ -75,6 +92,7 @@ func (p *Reinstall) reinstall(ctx context.Context, h *cluster.Host) error {
 		return fmt.Errorf("%s: wait for service: %w", h, err)
 	}
 
+	h.Metadata.NeedsReinstall = false
 	log.Infof("%s: K3s service reinstalled", h)
 	return nil
 }

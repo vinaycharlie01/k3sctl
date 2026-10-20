@@ -15,6 +15,12 @@ type stagedFile struct {
 	path string
 }
 
+// StagedPath returns the path of the staged binary on the host, or an empty
+// string when nothing has been staged yet.
+func (s *stagedFile) StagedPath() string {
+	return s.path
+}
+
 func (s *stagedFile) CleanUp(ctx context.Context) error {
 	if s.path == "" {
 		return nil
@@ -31,7 +37,7 @@ func needsUpgrade(host Host, targetVersion string) bool {
 	return installed != targetVersion
 }
 
-func stageTempPath(host Host, version string) string {
+func stageTempPath(version string) string {
 	return filepath.Join("/tmp", fmt.Sprintf("k3s-%s.tmp", version))
 }
 

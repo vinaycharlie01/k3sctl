@@ -47,7 +47,7 @@ func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
 		if err := h.CordonNode(p.leader); err != nil {
 			log.Warnf("%s: cordon failed: %v", h, err)
 		}
-		if err := h.DrainNode(p.leader, p.Config.Spec.Options.Drain); err != nil {
+		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
 			log.Warnf("%s: drain failed: %v", h, err)
 		}
 	}

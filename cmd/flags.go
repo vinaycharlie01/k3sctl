@@ -99,20 +99,44 @@ func loadConfig(configPath string) (*v1beta1.Cluster, error) {
 		if err != nil {
 			return nil, fmt.Errorf("open config %s: %w", p, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if err := reader.Parse(f); err != nil {
 			return nil, fmt.Errorf("parse config %s: %w", p, err)
 		}
 	}
 
 	resources := reader.Resources()
-	if len(resources) == 0 {
-		return nil, fmt.Errorf("no documents found in config")
+
+	var clusterResources []*manifest.ResourceDefinition
+	for _, rd := range resources {
+		if strings.EqualFold(rd.APIVersion, v1beta1.APIVersion) && strings.EqualFold(rd.Kind, "Cluster") {
+			clusterResources = append(clusterResources, rd)
+		}
+	}
+	if len(clusterResources) != 1 {
+		return nil, fmt.Errorf("expected exactly one %s Cluster resource, got %d", v1beta1.APIVersion, len(clusterResources))
 	}
 
 	cfg := &v1beta1.Cluster{}
-	if err := resources[0].Unmarshal(cfg); err != nil {
+	if err := clusterResources[0].Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	for _, rd := range resources {
+		if rd == clusterResources[0] {
+			continue
+		}
+		if cfg.Metadata.Manifests == nil {
+			cfg.Metadata.Manifests = make(map[string][]byte)
+		}
+		name := rd.Filename()
+		for i := 2; ; i++ {
+			if _, exists := cfg.Metadata.Manifests[name]; !exists {
+				break
+			}
+			name = fmt.Sprintf("%s-%d", rd.Filename(), i)
+		}
+		cfg.Metadata.Manifests[name] = rd.Raw
 	}
 
 	cfg.SetDefaults()

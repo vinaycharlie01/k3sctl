@@ -31,7 +31,7 @@ func (p *localFileProvider) IsUpload() bool {
 }
 
 func (p *localFileProvider) Stage(ctx context.Context) error {
-	remotePath := stageTempPath(p.host, p.version)
+	remotePath := stageTempPath(p.version)
 	log.Infof("%s: uploading local k3s binary from %s", p.host, p.localPath)
 	if err := stageUpload(ctx, p.host, p.localPath, remotePath); err != nil {
 		return fmt.Errorf("stage local file: %w", err)

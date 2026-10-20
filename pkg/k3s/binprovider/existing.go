@@ -18,6 +18,10 @@ func (p *existingProvider) IsUpload() bool {
 	return false
 }
 
+func (p *existingProvider) StagedPath() string {
+	return ""
+}
+
 func (p *existingProvider) Stage(_ context.Context) error {
 	return nil
 }

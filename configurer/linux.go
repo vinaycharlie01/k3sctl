@@ -69,18 +69,15 @@ func (l *Linux) SetPath(key, value string) {
 	l.paths[key] = value
 }
 
-func (l *Linux) K3sCmdf(template string, args ...interface{}) string {
+func (l *Linux) K3sCmdf(template string, args ...any) string {
 	return fmt.Sprintf("%s %s", l.K3sBinaryPath(), fmt.Sprintf(template, args...))
 }
 
-func (l *Linux) KubeconfigPath(_ Host, dataDir string) string {
-	if dataDir == "" {
-		dataDir = l.DataDirDefaultPath()
-	}
+func (l *Linux) KubeconfigPath(_ Host, _ string) string {
 	return "/etc/rancher/k3s/k3s.yaml"
 }
 
-func (l *Linux) KubectlCmdf(h Host, dataDir, s string, args ...interface{}) string {
+func (l *Linux) KubectlCmdf(h Host, dataDir, s string, args ...any) string {
 	kubecfg := l.KubeconfigPath(h, dataDir)
 	formatted := fmt.Sprintf(s, args...)
 	if !strings.Contains(formatted, "--kubeconfig") {

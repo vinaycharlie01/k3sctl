@@ -36,6 +36,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.StageBinaries{},
 		&phase.UploadFiles{},
 		&phase.InstallBinaries{},
+		&phase.PrepareArm{},
 		&phase.ConfigureK3s{},
 		&phase.Restore{RestoreFrom: opts.RestoreFrom},
 		&phase.RunHooks{Action: "apply", Stage: "before"},
@@ -45,10 +46,11 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.InstallAgents{},
 		&phase.UpgradeServers{},
 		&phase.UpgradeAgents{NoDrain: opts.NoDrain},
-		&phase.Reinstall{},
+		&phase.Reinstall{NoDrain: opts.NoDrain},
 		&phase.ResetAgents{NoDrain: opts.NoDrain},
 		&phase.ResetServers{NoDrain: opts.NoDrain},
 		&phase.RunHooks{Action: "apply", Stage: "after"},
+		&phase.ApplyManifests{},
 	)
 
 	if opts.KubeconfigOut != nil {

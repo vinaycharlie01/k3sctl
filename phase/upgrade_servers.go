@@ -13,7 +13,8 @@ import (
 
 type UpgradeServers struct {
 	GenericPhase
-	hosts cluster.Hosts
+	hosts  cluster.Hosts
+	leader *cluster.Host
 }
 
 func (p *UpgradeServers) Title() string {
@@ -21,6 +22,7 @@ func (p *UpgradeServers) Title() string {
 }
 
 func (p *UpgradeServers) Prepare() {
+	p.leader = p.Config.Spec.K3sLeader()
 	p.hosts = p.Config.Spec.Hosts.Filter(func(h *cluster.Host) bool {
 		return h.IsServer() && !h.Reset && h.Metadata.NeedsUpgrade
 	})
@@ -58,15 +60,17 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 	}
 
 	binaryDir := h.Configurer.K3sBinaryPath()
-	stagedPath := fmt.Sprintf("/tmp/k3sctl-staged-k3s-%s", h.Metadata.Arch)
-	if h.Sudo().FS().FileExist(stagedPath) {
-		if err := h.Sudo().Exec(fmt.Sprintf("install -m 0755 %s %s",
-			shellQuote(stagedPath),
-			shellQuote(binaryDir),
-		)); err != nil {
-			return fmt.Errorf("%s: install binary: %w", h, err)
+	if provider := h.Metadata.BinaryProvider; provider != nil {
+		stagedPath := provider.StagedPath()
+		if stagedPath != "" && h.Sudo().FS().FileExist(stagedPath) {
+			if err := h.Sudo().Exec(fmt.Sprintf("install -m 0755 %s %s",
+				shellQuote(stagedPath),
+				shellQuote(binaryDir),
+			)); err != nil {
+				return fmt.Errorf("%s: install binary: %w", h, err)
+			}
+			_ = h.Sudo().FS().Remove(stagedPath)
 		}
-		_ = h.Sudo().FS().Remove(stagedPath)
 	}
 
 	log.Infof("%s: starting K3s service", h)
@@ -75,12 +79,13 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 	}
 
 	log.Infof("%s: waiting for K3s server to be ready", h)
-	if err := retry.Context(ctx, node.KubeNodeReadyFunc(h),
+	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
 	}
 
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
+	h.Metadata.NeedsUpgrade = false
 	log.Infof("%s: K3s server upgraded", h)
 
 	return nil

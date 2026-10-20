@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ func (p *InitializeK3s) Run(ctx context.Context) error {
 		return fmt.Errorf("%s: read node token: %w", h, err)
 	}
 	h.Metadata.NodeToken = strings.TrimSpace(output)
+	h.Metadata.NeedsUpgrade = false
 	log.Infof("%s: K3s cluster initialized", h)
 
 	return nil
@@ -69,7 +71,7 @@ func (p *InitializeK3s) Run(ctx context.Context) error {
 func (p *InitializeK3s) installK3sService(h *cluster.Host) error {
 	installFlags := h.K3sInstallFlags()
 
-	unitContent := k3sServerUnit(h.Configurer.K3sBinaryPath(), installFlags)
+	unitContent := k3sServerUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
 
 	if err := h.Sudo().FS().WriteFile(unitPath, []byte(unitContent), fs.FileMode(0644)); err != nil {
@@ -88,11 +90,11 @@ func (p *InitializeK3s) installK3sService(h *cluster.Host) error {
 }
 
 func (p *InitializeK3s) waitForReady(ctx context.Context, h *cluster.Host) error {
-	return retry.Context(ctx, node.KubeNodeReadyFunc(h),
+	return retry.Context(ctx, node.KubeNodeReadyFunc(h, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second))
 }
 
-func k3sServerUnit(binaryPath string, flags []string) string {
+func k3sServerUnit(binaryPath string, flags []string, env map[string]string) string {
 	execStart := binaryPath + " server"
 	for _, f := range flags {
 		execStart += " " + f
@@ -105,7 +107,7 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStartPre=-/sbin/modprobe br_netfilter
+%sExecStartPre=-/sbin/modprobe br_netfilter
 ExecStartPre=-/sbin/modprobe overlay
 ExecStart=%s
 KillMode=process
@@ -120,10 +122,10 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, execStart)
+`, systemdEnvironment(env), execStart)
 }
 
-func k3sAgentUnit(binaryPath string, flags []string) string {
+func k3sAgentUnit(binaryPath string, flags []string, env map[string]string) string {
 	execStart := binaryPath + " agent"
 	for _, f := range flags {
 		execStart += " " + f
@@ -136,7 +138,7 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-ExecStart=%s
+%sExecStart=%s
 KillMode=process
 Delegate=yes
 LimitNOFILE=1048576
@@ -149,5 +151,24 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, execStart)
+`, systemdEnvironment(env), execStart)
+}
+
+// systemdEnvironment renders the cluster's environment variables as
+// Environment= directives. Keys are sorted so the generated unit is stable.
+func systemdEnvironment(env map[string]string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, key := range keys {
+		fmt.Fprintf(&b, "Environment=%q\n", key+"="+env[key])
+	}
+	return b.String()
 }

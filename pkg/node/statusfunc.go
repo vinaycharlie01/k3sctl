@@ -25,10 +25,18 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func KubeNodeReadyFunc(h *cluster.Host) retryFunc {
+// KubeNodeReadyFunc returns a retry function that reports whether the named
+// node has the Ready condition set. Kubectl is always executed on the leader,
+// because agents do not have a usable kubeconfig.
+func KubeNodeReadyFunc(leader *cluster.Host, nodeName string) retryFunc {
 	return func(_ context.Context) error {
-		nodeName := h.KubernetesNodeName()
-		output, err := h.Sudo().ExecOutput(h.Configurer.KubectlCmdf(h, h.K3sDataDir(), "get node %s -o json", shellQuote(nodeName)), cmd.HideOutput())
+		if leader == nil {
+			return fmt.Errorf("no leader host available for kubectl")
+		}
+		if nodeName == "" {
+			nodeName = leader.KubernetesNodeName()
+		}
+		output, err := leader.Sudo().ExecOutput(leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(), "get node %s -o json", shellQuote(nodeName)), cmd.HideOutput())
 		if err != nil {
 			return fmt.Errorf("failed to get node status: %w", err)
 		}

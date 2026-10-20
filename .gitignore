@@ -3,6 +3,7 @@
 #
 # Binaries for programs and plugins
 /k3sctl
+/dist/
 *.exe
 *.exe~
 *.dll
