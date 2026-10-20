@@ -20,8 +20,8 @@ func (p *GatherK3sFacts) Title() string {
 func (p *GatherK3sFacts) Run(ctx context.Context) error {
 	return p.parallelDo(ctx, p.Config.Spec.Hosts, func(ctx context.Context, h *cluster.Host) error {
 		binaryPath := h.K3sBinaryDir()
-
-		if h.Sudo().FS().FileExist(binaryPath) {
+		binaryInstalled := h.Sudo().FS().FileExist(binaryPath)
+		if binaryInstalled {
 			output, err := h.Sudo().ExecOutput(fmt.Sprintf("%s --version", binaryPath))
 			if err == nil {
 				ver := parseK3sVersion(output)
@@ -32,19 +32,24 @@ func (p *GatherK3sFacts) Run(ctx context.Context) error {
 			}
 		}
 
+		// Client.Service() only needs an init system, so it succeeds on any
+		// systemd host even when no k3s unit exists. Treat K3s as installed
+		// only when the binary or the unit file is actually present; otherwise
+		// `config status` reports a freshly reset host as "stopped".
 		serviceName := h.K3sServiceName()
-		svc, err := h.Sudo().Service(serviceName)
-		if err == nil {
-			h.Metadata.K3sServiceInstalled = true
-			if svc.IsRunning(ctx) {
+		unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", serviceName)
+		unitInstalled := h.Sudo().FS().FileExist(unitPath)
+
+		h.Metadata.K3sServiceInstalled = binaryInstalled || unitInstalled
+		if h.Metadata.K3sServiceInstalled {
+			if svc, err := h.Sudo().Service(serviceName); err == nil && svc.IsRunning(ctx) {
 				h.Metadata.K3sServiceRunning = true
 				h.Metadata.K3sRunningVersion = h.Metadata.K3sInstalledVersion
 				log.Infof("%s: k3s service %s is running", h, serviceName)
 			}
 		}
 
-		unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", serviceName)
-		if h.Sudo().FS().FileExist(unitPath) {
+		if unitInstalled {
 			output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s", shellQuote(unitPath)))
 			if err == nil {
 				h.Metadata.K3sCurrentInstallFlags = parseExecStartFlags(output)
