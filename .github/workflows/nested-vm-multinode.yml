@@ -1,0 +1,810 @@
+name: Nested VM Multi-Node Integration Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      k3s_version:
+        description: "K3s version (e.g., v1.28.0+k3s1)"
+        required: false
+        default: "v1.28.0+k3s1"
+      timeout_minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  multinode-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ fromJson(inputs.timeout_minutes || '60') }}
+    env:
+      WORKFLOW_DIR: /tmp/k3sctl-workflow
+      QEMU_SYSTEM_X86_64: qemu-system-x86_64
+      E2E_TIMEOUT: 600
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Initialize workflow directories and logging
+        run: |
+          mkdir -p "$WORKFLOW_DIR"/{vms,ssh,logs,diagnostics,config}
+          echo "WORKFLOW_DIR=$WORKFLOW_DIR" >> $GITHUB_ENV
+          echo "VM_LOG=$WORKFLOW_DIR/logs/vms.log" >> $GITHUB_ENV
+          echo "SSH_PRIVATE_KEY=$WORKFLOW_DIR/ssh/id_rsa" >> $GITHUB_ENV
+          echo "SSH_PUBLIC_KEY=$WORKFLOW_DIR/ssh/id_rsa.pub" >> $GITHUB_ENV
+          touch "$WORKFLOW_DIR/logs/vms.log"
+          chmod 600 "$WORKFLOW_DIR/logs/vms.log"
+
+      - name: Detect virtualization capability
+        run: |
+          set -e
+          echo "==> Checking virtualization support..."
+
+          # Check for KVM
+          if grep -q "kvm" /proc/cpuinfo; then
+            if [ -e /dev/kvm ]; then
+              echo "KVM support detected and /dev/kvm available"
+              echo "VIRT_BACKEND=kvm" >> $GITHUB_ENV
+            else
+              echo "KVM in CPU but /dev/kvm not available, will try TCG"
+              echo "VIRT_BACKEND=tcg" >> $GITHUB_ENV
+            fi
+          else
+            echo "No KVM in CPU, using TCG emulation (slower)"
+            echo "VIRT_BACKEND=tcg" >> $GITHUB_ENV
+          fi
+
+          # Check system resources
+          TOTAL_MEM=$(free -m | awk '/^Mem:/{print $2}')
+          echo "Total memory: ${TOTAL_MEM}MB"
+
+          # Estimate needed memory: 512MB per VM + buffer
+          NEEDED_MEM=2048
+          if [ "$TOTAL_MEM" -lt "$NEEDED_MEM" ]; then
+            echo "ERROR: Insufficient memory. Need ${NEEDED_MEM}MB, have ${TOTAL_MEM}MB"
+            exit 1
+          fi
+
+          TOTAL_CPUS=$(nproc)
+          echo "Total CPUs: ${TOTAL_CPUS}"
+          echo "Available memory: ${TOTAL_MEM}MB"
+
+      - name: Install QEMU and networking tools
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-system-x86 \
+            qemu-utils \
+            cloud-image-utils \
+            bridge-utils \
+            dnsmasq \
+            net-tools \
+            curl \
+            wget
+
+          echo "==> QEMU installation complete"
+          qemu-system-x86_64 --version
+
+      - name: Generate SSH key pair
+        run: |
+          set -e
+          echo "==> Generating SSH key pair..."
+          ssh-keygen -t ed25519 -f "$SSH_PRIVATE_KEY" -N "" -C "k3sctl-test"
+          chmod 600 "$SSH_PRIVATE_KEY"
+          chmod 644 "$SSH_PUBLIC_KEY"
+          echo "SSH key fingerprint:"
+          ssh-keygen -l -f "$SSH_PUBLIC_KEY"
+
+      - name: Download Ubuntu 24.04 cloud image
+        run: |
+          set -e
+          echo "==> Downloading Ubuntu 24.04 cloud image..."
+          cd "$WORKFLOW_DIR/vms"
+
+          # Use a fast, reliable Ubuntu cloud image mirror
+          IMAGE_URL="https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+          wget -q --show-progress -O focal-base.img "$IMAGE_URL" || {
+            echo "ERROR: Failed to download cloud image"
+            exit 1
+          }
+
+          ls -lh focal-base.img
+          echo "Image download complete"
+
+      - name: Create cloud-init configurations
+        run: |
+          set -e
+          mkdir -p "$WORKFLOW_DIR/cloud-init"
+
+          # Read SSH public key
+          SSH_KEY_CONTENT=$(cat "$SSH_PUBLIC_KEY")
+
+          # Create user-data template
+          cat > "$WORKFLOW_DIR/cloud-init/user-data.tpl" <<'EOF'
+          #cloud-config
+          hostname: {{ HOSTNAME }}
+          fqdn: {{ HOSTNAME }}.local
+
+          users:
+            - name: ubuntu
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh-authorized-keys:
+                - {{ SSH_KEY }}
+
+          packages:
+            - curl
+            - wget
+            - openssh-server
+            - net-tools
+            - dnsutils
+            - systemd-resolved
+
+          write_files:
+            - path: /etc/systemd/resolved.conf
+              permissions: '0644'
+              content: |
+                [Resolve]
+                DNS=8.8.8.8 1.1.1.1
+                FallbackDNS=8.8.4.4 1.0.0.1
+                DNSSEC=no
+
+          runcmd:
+            - systemctl restart systemd-resolved
+            - systemctl enable ssh
+            - systemctl start ssh
+            - echo "Cloud-init completed at $(date)" > /var/log/cloud-init-complete.log
+
+          power_state:
+            mode: reboot
+            delay: 1
+          EOF
+
+          echo "==> Creating cloud-init configs for 3 VMs..."
+
+          # Server
+          sed "s|{{ HOSTNAME }}|k3s-server|g; s|{{ SSH_KEY }}|$SSH_KEY_CONTENT|g" \
+            "$WORKFLOW_DIR/cloud-init/user-data.tpl" > "$WORKFLOW_DIR/cloud-init/server-user-data"
+
+          # Agent 1
+          sed "s|{{ HOSTNAME }}|k3s-agent-1|g; s|{{ SSH_KEY }}|$SSH_KEY_CONTENT|g" \
+            "$WORKFLOW_DIR/cloud-init/user-data.tpl" > "$WORKFLOW_DIR/cloud-init/agent1-user-data"
+
+          # Agent 2
+          sed "s|{{ HOSTNAME }}|k3s-agent-2|g; s|{{ SSH_KEY }}|$SSH_KEY_CONTENT|g" \
+            "$WORKFLOW_DIR/cloud-init/user-data.tpl" > "$WORKFLOW_DIR/cloud-init/agent2-user-data"
+
+          echo "Cloud-init configs created"
+
+      - name: Create VM disks and seed images
+        run: |
+          set -e
+          echo "==> Creating VM disks and seed images..."
+
+          cd "$WORKFLOW_DIR/vms"
+          BASE_IMAGE="focal-base.img"
+
+          for VM in server agent-1 agent-2; do
+            echo "Creating disk for $VM..."
+
+            # Create root disk
+            qemu-img create -f qcow2 -b "$BASE_IMAGE" "k3s-${VM}-root.qcow2" 10G
+
+            # Create seed image with cloud-init
+            mkdir -p "seed-${VM}"
+            cp "$WORKFLOW_DIR/cloud-init/${VM}-user-data" "seed-${VM}/user-data"
+
+            cat > "seed-${VM}/meta-data" <<EOF
+          instance-id: k3s-${VM}
+          local-hostname: k3s-${VM}
+          EOF
+
+            # Create ISO seed image
+            cloud-localds "k3s-${VM}-seed.iso" \
+              "seed-${VM}/user-data" \
+              "seed-${VM}/meta-data" || {
+              echo "ERROR: Failed to create seed ISO for $VM"
+              exit 1
+            }
+
+            rm -rf "seed-${VM}"
+            ls -lh "k3s-${VM}-"*.{qcow2,iso}
+          done
+
+          echo "VM disks and seed images created"
+
+      - name: Set up virtual network
+        run: |
+          set -e
+          echo "==> Setting up virtual network..."
+
+          BRIDGE_NAME="br-k3stest"
+          TAP_IFS=()
+
+          # Check if bridge already exists (cleanup from previous run)
+          if ip link show "$BRIDGE_NAME" &>/dev/null; then
+            echo "Removing existing bridge..."
+            sudo ip link delete "$BRIDGE_NAME" || true
+            sleep 1
+          fi
+
+          # Create bridge
+          sudo ip link add "$BRIDGE_NAME" type bridge
+          sudo ip link set "$BRIDGE_NAME" up
+          sudo ip addr add 192.168.100.1/24 dev "$BRIDGE_NAME"
+
+          # Create TAP interfaces for each VM
+          for i in 0 1 2; do
+            TAP="tap-k3s-${i}"
+            echo "Creating TAP interface: $TAP"
+
+            sudo ip tuntap add mode tap "$TAP"
+            sudo ip link set "$TAP" up
+            sudo ip link set "$TAP" master "$BRIDGE_NAME"
+            TAP_IFS+=("$TAP")
+          done
+
+          # Start dnsmasq for DHCP and DNS
+          echo "Starting dnsmasq..."
+          cat > "$WORKFLOW_DIR/dnsmasq.conf" <<EOF
+          interface=$BRIDGE_NAME
+          dhcp-range=192.168.100.10,192.168.100.100,255.255.255.0
+          dhcp-option=option:routers,192.168.100.1
+          dhcp-option=option:dns-server,192.168.100.1
+          log-dhcp
+          EOF
+
+          sudo dnsmasq -C "$WORKFLOW_DIR/dnsmasq.conf" \
+            -x "$WORKFLOW_DIR/logs/dnsmasq.pid" || {
+            echo "WARNING: dnsmasq start had issues, continuing..."
+          }
+
+          echo "BRIDGE_NAME=$BRIDGE_NAME" >> $GITHUB_ENV
+          echo "TAP_IFS=${TAP_IFS[*]}" >> $GITHUB_ENV
+          echo "Network setup complete"
+          ip link show "$BRIDGE_NAME"
+
+      - name: Start QEMU VMs
+        run: |
+          set -e
+          echo "==> Starting QEMU VMs..."
+
+          cd "$WORKFLOW_DIR/vms"
+          VIRT_BACKEND="${VIRT_BACKEND:-tcg}"
+          MEM_PER_VM=768
+          CPUS_PER_VM=2
+
+          VMS=("server" "agent-1" "agent-2")
+          PIDS=()
+
+          for i in "${!VMS[@]}"; do
+            VM="${VMS[$i]}"
+            TAP_IF="tap-k3s-${i}"
+            MONITOR_PORT=$((5900 + i))
+            SERIAL_LOG="$WORKFLOW_DIR/logs/serial-${VM}.log"
+
+            echo "Launching k3s-${VM}..."
+
+            QEMU_OPTS=(
+              "-name" "k3s-${VM}"
+              "-m" "${MEM_PER_VM}M"
+              "-smp" "${CPUS_PER_VM}"
+              "-drive" "file=k3s-${VM}-root.qcow2,if=virtio,format=qcow2"
+              "-drive" "file=k3s-${VM}-seed.iso,if=virtio,media=cdrom"
+              "-net" "nic,model=virtio,macaddr=52:54:00:00:00:0${i}"
+              "-net" "tap,ifname=${TAP_IF},script=no,downscript=no"
+              "-serial" "file:${SERIAL_LOG}"
+              "-pidfile" "$WORKFLOW_DIR/logs/qemu-${VM}.pid"
+              "-nographic"
+              "-enable-kvm" # Will be ignored if KVM unavailable
+            )
+
+            # Conditionally add machine and acceleration options
+            if [ "$VIRT_BACKEND" = "kvm" ] && [ -e /dev/kvm ]; then
+              QEMU_OPTS+=("-machine" "accel=kvm:tcg")
+            else
+              QEMU_OPTS+=("-machine" "accel=tcg")
+            fi
+
+            timeout 30 qemu-system-x86_64 "${QEMU_OPTS[@]}" &
+            PID=$!
+            PIDS+=("$PID")
+            echo "Started k3s-${VM} with PID $PID"
+
+            sleep 3
+          done
+
+          echo "VM_PIDS=${PIDS[*]}" >> $GITHUB_ENV
+          echo "All VMs started. Waiting for cloud-init..."
+          sleep 30
+
+      - name: Detect VM IP addresses and wait for SSH
+        run: |
+          set -e
+          echo "==> Waiting for VMs to be ready..."
+
+          TIMEOUT=300
+          ELAPSED=0
+          STEP=5
+
+          declare -A VM_IPS
+          VMS=("server" "agent-1" "agent-2")
+
+          # Wait for DHCP leases
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            echo "Checking DHCP leases (${ELAPSED}s/${TIMEOUT}s)..."
+
+            # Use dnsmasq lease file or arp to find IPs
+            if [ -f "$WORKFLOW_DIR/logs/dnsmasq.pid" ]; then
+              cat /var/lib/dnsmasq/*.leases 2>/dev/null || true
+            fi
+
+            READY=0
+            for VM in "${VMS[@]}"; do
+              # Try to ping k3s-$VM hostname or use ARP
+              IP=$(arp -a | grep -i "k3s-${VM}" | awk '{print $1}' | cut -d'(' -f2 | cut -d')' -f1) || true
+
+              if [ -n "$IP" ]; then
+                VM_IPS[$VM]="$IP"
+                echo "Found k3s-${VM}: $IP"
+                READY=$((READY + 1))
+              fi
+            done
+
+            if [ "$READY" -eq 3 ]; then
+              break
+            fi
+
+            sleep $STEP
+            ELAPSED=$((ELAPSED + STEP))
+          done
+
+          if [ "${#VM_IPS[@]}" -ne 3 ]; then
+            echo "ERROR: Could not find all VM IPs. Found: ${#VM_IPS[@]}/3"
+            echo "ARP table:"
+            arp -a
+            exit 1
+          fi
+
+          # Save IPs to environment
+          for VM in "${VMS[@]}"; do
+            IP="${VM_IPS[$VM]}"
+            echo "VM_IP_${VM^^}=${IP}" | sed 's/-/_/g' >> $GITHUB_ENV
+          done
+
+          echo "==> Waiting for SSH to be available on all VMs..."
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            SSH_READY=0
+
+            for VM in "${VMS[@]}"; do
+              IP="${VM_IPS[$VM]}"
+              if timeout 5 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                  -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" "echo 'SSH OK'" &>/dev/null; then
+                SSH_READY=$((SSH_READY + 1))
+              fi
+            done
+
+            if [ "$SSH_READY" -eq 3 ]; then
+              echo "All VMs SSH ready"
+              break
+            fi
+
+            echo "SSH ready on ${SSH_READY}/3 VMs"
+            sleep $STEP
+            ELAPSED=$((ELAPSED + STEP))
+          done
+
+          if [ "$SSH_READY" -ne 3 ]; then
+            echo "ERROR: SSH not ready on all VMs after ${TIMEOUT}s"
+            exit 1
+          fi
+
+          echo "VM_IP_SERVER=${VM_IPS[server]}" >> $GITHUB_ENV
+          echo "VM_IP_AGENT1=${VM_IPS[agent-1]}" >> $GITHUB_ENV
+          echo "VM_IP_AGENT2=${VM_IPS[agent-2]}" >> $GITHUB_ENV
+
+      - name: Validate VM prerequisites
+        run: |
+          set -e
+          echo "==> Validating VM prerequisites..."
+
+          SERVER_IP="${VM_IP_SERVER}"
+          AGENT1_IP="${VM_IP_AGENT1}"
+          AGENT2_IP="${VM_IP_AGENT2}"
+
+          VMS=("$SERVER_IP" "$AGENT1_IP" "$AGENT2_IP")
+          HOSTNAMES=("k3s-server" "k3s-agent-1" "k3s-agent-2")
+
+          for i in "${!VMS[@]}"; do
+            IP="${VMS[$i]}"
+            HOSTNAME="${HOSTNAMES[$i]}"
+
+            echo "==> Validating $HOSTNAME ($IP)..."
+
+            # Check systemd (PID 1)
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "ps -p 1 | grep -q systemd && echo 'PASS: systemd is PID 1' || (echo 'FAIL: systemd not PID 1' && exit 1)"
+
+            # Check sudo
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "sudo -n true && echo 'PASS: passwordless sudo works' || (echo 'FAIL: sudo not passwordless' && exit 1)"
+
+            # Check Ubuntu version
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "grep -q '24.04' /etc/os-release && echo 'PASS: Ubuntu 24.04 detected' || echo 'WARNING: unexpected Ubuntu version'"
+
+            # Check hostname
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "[ \"\$(hostname)\" = \"$HOSTNAME\" ] && echo 'PASS: hostname correct' || echo 'WARNING: hostname mismatch'"
+
+            # Check DNS
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "nslookup google.com &>/dev/null && echo 'PASS: DNS works' || echo 'WARNING: DNS may not work'"
+
+            # Check disk space
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "df -h / | grep -v Filesystem"
+
+            # Check memory
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" \
+              "free -h"
+          done
+
+          echo "==> VM prerequisite validation complete"
+
+      - name: Build k3sctl binary
+        run: |
+          set -e
+          echo "==> Building k3sctl..."
+
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+          go build -ldflags "-s -w \
+            -X github.com/vinaycharlie01/k3sctl/version.Version=${VERSION} \
+            -X github.com/vinaycharlie01/k3sctl/version.GitCommit=${GIT_COMMIT}" \
+            -o "$WORKFLOW_DIR/k3sctl" .
+
+          ls -lh "$WORKFLOW_DIR/k3sctl"
+          echo "Build complete"
+
+      - name: Generate k3sctl cluster configuration
+        run: |
+          set -e
+          echo "==> Generating cluster configuration..."
+
+          K3S_VERSION="${{ inputs.k3s_version || 'v1.28.0+k3s1' }}"
+          SERVER_IP="${VM_IP_SERVER}"
+          AGENT1_IP="${VM_IP_AGENT1}"
+          AGENT2_IP="${VM_IP_AGENT2}"
+
+          cat > "$WORKFLOW_DIR/config/k3sctl.yaml" <<EOF
+          apiVersion: k3sctl.k3sproject.io/v1beta1
+          kind: Cluster
+          metadata:
+            name: k3s-nested-test
+          spec:
+            hosts:
+              - role: server
+                hostname: k3s-server
+                privateAddress: ${SERVER_IP}
+                ssh:
+                  address: ${SERVER_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_PRIVATE_KEY}
+                  port: 22
+              - role: agent
+                hostname: k3s-agent-1
+                privateAddress: ${AGENT1_IP}
+                ssh:
+                  address: ${AGENT1_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_PRIVATE_KEY}
+                  port: 22
+              - role: agent
+                hostname: k3s-agent-2
+                privateAddress: ${AGENT2_IP}
+                ssh:
+                  address: ${AGENT2_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_PRIVATE_KEY}
+                  port: 22
+            k3s:
+              version: ${K3S_VERSION}
+          EOF
+
+          cat "$WORKFLOW_DIR/config/k3sctl.yaml"
+          echo "Configuration generated"
+
+      - name: Run k3sctl apply
+        run: |
+          set -e
+          echo "==> Running k3sctl apply..."
+
+          cd "$WORKFLOW_DIR"
+
+          APPLY_LOG="$WORKFLOW_DIR/logs/apply.log"
+
+          timeout "$E2E_TIMEOUT" ./k3sctl apply \
+            --config config/k3sctl.yaml \
+            --force \
+            --kubeconfig-out "$WORKFLOW_DIR/config/kubeconfig.yaml" \
+            2>&1 | tee "$APPLY_LOG" || {
+            APPLY_EXIT=$?
+            echo "ERROR: k3sctl apply failed with exit code $APPLY_EXIT"
+            exit $APPLY_EXIT
+          }
+
+          echo "k3sctl apply completed"
+
+      - name: Wait for cluster to be ready
+        run: |
+          set -e
+          echo "==> Waiting for cluster to reach Ready state..."
+
+          SERVER_IP="${VM_IP_SERVER}"
+          KUBECONFIG="$WORKFLOW_DIR/config/kubeconfig.yaml"
+
+          # Wait for kubeconfig
+          if [ ! -f "$KUBECONFIG" ]; then
+            echo "ERROR: kubeconfig not found at $KUBECONFIG"
+            exit 1
+          fi
+
+          echo "kubeconfig found:"
+          ls -lh "$KUBECONFIG"
+
+          # Install kubectl if not present
+          if ! command -v kubectl &>/dev/null; then
+            echo "Installing kubectl..."
+            VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
+            curl -sL "https://dl.k8s.io/release/${VERSION}/bin/linux/amd64/kubectl" \
+              -o /tmp/kubectl && chmod +x /tmp/kubectl
+            export PATH="/tmp:$PATH"
+          fi
+
+          echo "kubectl version:"
+          kubectl version --client || true
+
+          # Verify with kubeconfig from server
+          TIMEOUT=300
+          ELAPSED=0
+          STEP=10
+
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            echo "Checking cluster readiness (${ELAPSED}s/${TIMEOUT}s)..."
+
+            # Get nodes
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+                "sudo k3s kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes" &>/dev/null; then
+
+              READY_NODES=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+                "sudo k3s kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes -o jsonpath='{range .items[*]}{.metadata.name}{\"=\"}{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}'")
+
+              echo "Node status:"
+              echo "$READY_NODES"
+
+              # Check if all 3 nodes are Ready
+              READY_COUNT=$(echo "$READY_NODES" | grep -c "=True" || true)
+              if [ "$READY_COUNT" -eq 3 ]; then
+                echo "SUCCESS: All 3 nodes ready"
+                break
+              fi
+            fi
+
+            sleep $STEP
+            ELAPSED=$((ELAPSED + STEP))
+          done
+
+          if [ $ELAPSED -ge $TIMEOUT ]; then
+            echo "ERROR: Cluster did not reach Ready state after ${TIMEOUT}s"
+            exit 1
+          fi
+
+          echo "Cluster is ready"
+
+      - name: Verify cluster health
+        run: |
+          set -e
+          echo "==> Verifying cluster health..."
+
+          SERVER_IP="${VM_IP_SERVER}"
+
+          # Verify services
+          for SERVICE in "k3s" "k3s-agent"; do
+            echo "==> Checking $SERVICE service..."
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+              "sudo systemctl status ${SERVICE} --no-pager" || true
+          done
+
+          # Get K3s version on each node
+          echo "==> K3s versions:"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+            "sudo k3s --version"
+
+          # Get cluster info
+          echo "==> Cluster nodes:"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+            "sudo k3s kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes -o wide"
+
+          echo "==> Cluster info:"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i "$SSH_PRIVATE_KEY" "ubuntu@${SERVER_IP}" \
+            "sudo k3s kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml cluster-info" || true
+
+          echo "Cluster health verification complete"
+
+      - name: Collect diagnostics (on failure)
+        if: failure()
+        run: |
+          set +e
+          echo "==> Collecting failure diagnostics..."
+
+          DIAG_DIR="$WORKFLOW_DIR/diagnostics"
+          mkdir -p "$DIAG_DIR"
+
+          # Collect QEMU process info
+          echo "=== QEMU Processes ===" > "$DIAG_DIR/qemu-status.log"
+          ps aux | grep qemu >> "$DIAG_DIR/qemu-status.log" 2>&1 || true
+
+          # Collect VM serial console logs
+          echo "=== Serial Console Logs ===" > "$DIAG_DIR/serial-logs.log"
+          cat "$WORKFLOW_DIR"/logs/serial-*.log >> "$DIAG_DIR/serial-logs.log" 2>&1 || true
+
+          # Collect dnsmasq logs if available
+          if [ -f "$WORKFLOW_DIR/logs/dnsmasq.log" ]; then
+            cp "$WORKFLOW_DIR/logs/dnsmasq.log" "$DIAG_DIR/"
+          fi
+
+          # Collect cloud-init logs from VMs
+          for IP in "$VM_IP_SERVER" "$VM_IP_AGENT1" "$VM_IP_AGENT2"; do
+            HOSTNAME=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" "hostname" 2>/dev/null || echo "unknown")
+
+            echo "=== Cloud-init logs for $HOSTNAME ===" >> "$DIAG_DIR/cloud-init.log"
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" "cat /var/log/cloud-init.log" >> "$DIAG_DIR/cloud-init.log" 2>&1 || true
+
+            echo "=== Systemd journal for $HOSTNAME ===" >> "$DIAG_DIR/systemd-journal.log"
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" "sudo journalctl -u k3s -n 100" >> "$DIAG_DIR/systemd-journal.log" 2>&1 || true
+
+            echo "=== Network info for $HOSTNAME ===" >> "$DIAG_DIR/network.log"
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -i "$SSH_PRIVATE_KEY" "ubuntu@${IP}" "ip addr; ip route" >> "$DIAG_DIR/network.log" 2>&1 || true
+          done
+
+          # Collect k3sctl apply logs
+          if [ -f "$WORKFLOW_DIR/logs/apply.log" ]; then
+            cp "$WORKFLOW_DIR/logs/apply.log" "$DIAG_DIR/"
+          fi
+
+          echo "Diagnostics collected"
+
+      - name: Cleanup (always)
+        if: always()
+        run: |
+          set +e
+          echo "==> Starting cleanup..."
+
+          # Attempt reset on all hosts if accessible
+          echo "Attempting k3sctl reset..."
+          timeout 60 "$WORKFLOW_DIR/k3sctl" reset \
+            --config "$WORKFLOW_DIR/config/k3sctl.yaml" \
+            --force \
+            --no-drain \
+            2>&1 | tee "$WORKFLOW_DIR/logs/reset.log" || {
+            echo "WARNING: k3sctl reset had issues, continuing with cleanup..."
+          }
+
+          sleep 5
+
+          # Stop QEMU VMs
+          echo "Stopping QEMU VMs..."
+          if [ -n "$VM_PIDS" ]; then
+            for PID in $VM_PIDS; do
+              if kill -0 "$PID" 2>/dev/null; then
+                echo "Killing QEMU PID $PID..."
+                kill -TERM "$PID" 2>/dev/null || true
+                sleep 2
+                kill -KILL "$PID" 2>/dev/null || true
+              fi
+            done
+          fi
+
+          # Wait for QEMU processes to die
+          sleep 3
+
+          # Remove TAP interfaces
+          echo "Removing TAP interfaces..."
+          if [ -n "$TAP_IFS" ]; then
+            for TAP in $TAP_IFS; do
+              echo "Removing $TAP..."
+              sudo ip link set "$TAP" down 2>/dev/null || true
+              sudo ip tuntap delete mode tap "$TAP" 2>/dev/null || true
+            done
+          fi
+
+          # Remove bridge
+          echo "Removing virtual bridge..."
+          if [ -n "$BRIDGE_NAME" ]; then
+            sudo ip link set "$BRIDGE_NAME" down 2>/dev/null || true
+            sudo ip link delete "$BRIDGE_NAME" 2>/dev/null || true
+          fi
+
+          # Stop dnsmasq
+          echo "Stopping dnsmasq..."
+          if [ -f "$WORKFLOW_DIR/logs/dnsmasq.pid" ]; then
+            DNSMASQ_PID=$(cat "$WORKFLOW_DIR/logs/dnsmasq.pid" 2>/dev/null || true)
+            if [ -n "$DNSMASQ_PID" ] && kill -0 "$DNSMASQ_PID" 2>/dev/null; then
+              kill "$DNSMASQ_PID" 2>/dev/null || true
+            fi
+          fi
+          sudo killall dnsmasq 2>/dev/null || true
+
+          # Remove VM disks
+          echo "Removing VM disks..."
+          rm -f "$WORKFLOW_DIR/vms/"*.qcow2 "$WORKFLOW_DIR/vms/"*.iso 2>/dev/null || true
+
+          # Remove temporary config and keys
+          echo "Removing temporary keys and credentials..."
+          rm -f "$WORKFLOW_DIR/ssh/id_rsa" 2>/dev/null || true
+          rm -f "$WORKFLOW_DIR/config/kubeconfig.yaml" 2>/dev/null || true
+
+          # Preserve non-sensitive logs and diagnostics
+          echo "Preserving non-sensitive artifacts..."
+          ls -lh "$WORKFLOW_DIR/logs/" "$WORKFLOW_DIR/diagnostics/" 2>/dev/null || true
+
+          echo "==> Cleanup complete"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k3sctl-nested-vm-logs
+          path: |
+            ${{ env.WORKFLOW_DIR }}/logs/
+            ${{ env.WORKFLOW_DIR }}/diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Report results
+        if: success()
+        run: |
+          echo "==> Integration test PASSED"
+          echo "All 3 nodes deployed and cluster is healthy"
+          echo "Server: $VM_IP_SERVER"
+          echo "Agent 1: $VM_IP_AGENT1"
+          echo "Agent 2: $VM_IP_AGENT2"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "==> Integration test FAILED"
+          echo "Check artifacts for diagnostics"
+          exit 1
