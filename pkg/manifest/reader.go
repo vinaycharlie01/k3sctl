@@ -52,7 +52,7 @@ func (rd *ResourceDefinition) Bytes() []byte {
 }
 
 func (rd *ResourceDefinition) Unmarshal(obj any) error {
-	if err := yaml.UnmarshalStrict(rd.Bytes(), obj); err != nil {
+	if err := yaml.Unmarshal(rd.Bytes(), obj); err != nil {
 		return fmt.Errorf("failed to unmarshal %s: %w", rd.Origin, err)
 	}
 	return nil
