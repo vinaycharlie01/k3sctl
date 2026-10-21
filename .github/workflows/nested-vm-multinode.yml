@@ -6,9 +6,14 @@ name: Nested VM Multi-Node K3s
 #   - Cloud-init provisioned with private networking (10.0.0.0/24)
 #   - Temporary SSH keys for secure access
 #
-# This does NOT modify any existing workflow. Trigger manually only.
+# This does NOT modify any existing workflow.
 
 on:
+  push:
+    branches:
+      - newmulti
+    paths:
+      - ".github/workflows/nested-vm-multinode.yml"
   workflow_dispatch:
     inputs:
       k3s_version:
