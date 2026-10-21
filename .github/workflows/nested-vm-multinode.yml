@@ -1,0 +1,520 @@
+name: Nested VM Multi-Node K3s
+
+# Three-node K3s cluster test using QEMU/KVM nested VMs:
+#   - 1 server node + 2 agent nodes as independent Ubuntu 24.04 VMs
+#   - KVM acceleration with TCG fallback
+#   - Cloud-init provisioned with private networking (10.0.0.0/24)
+#   - Temporary SSH keys for secure access
+#
+# This does NOT modify any existing workflow. Trigger manually only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      k3s_version:
+        description: "K3s version to install (must start with 'v')"
+        required: false
+        default: "v1.37.1+k3s1"
+      vm_memory:
+        description: "RAM per VM in MB"
+        required: false
+        default: "2048"
+      vm_cpus:
+        description: "vCPUs per VM"
+        required: false
+        default: "2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nested-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K3S_VERSION: ${{ inputs.k3s_version || 'v1.37.1+k3s1' }}
+  VM_MEMORY: ${{ inputs.vm_memory || '2048' }}
+  VM_CPUS: ${{ inputs.vm_cpus || '2' }}
+  SERVER_IP: "10.0.0.10"
+  AGENT1_IP: "10.0.0.11"
+  AGENT2_IP: "10.0.0.12"
+  BRIDGE_IP: "10.0.0.1"
+  BRIDGE_NAME: "k3sbr0"
+  SSH_PORT_SERVER: "2222"
+  SSH_PORT_AGENT1: "2223"
+  SSH_PORT_AGENT2: "2224"
+  CLOUD_IMG_URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  CLOUD_IMG: "ubuntu-24.04-cloud.img"
+
+jobs:
+  multinode:
+    name: 3-node cluster (1 server + 2 agents)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build CLI
+        run: task build
+
+      - name: Preflight checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          [ -x ./k3sctl ] || fail "k3sctl binary was not produced"
+          pass "k3sctl binary built"
+
+          # Check KVM availability (informational — we fall back to TCG)
+          if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "KVM_ACCEL=true" >> "$GITHUB_ENV"
+            pass "KVM acceleration available"
+          else
+            echo "KVM_ACCEL=false" >> "$GITHUB_ENV"
+            echo "::warning::KVM not available, falling back to TCG (slower)"
+          fi
+
+      - name: Install QEMU and networking tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            qemu-system-x86 qemu-utils cloud-image-utils \
+            bridge-utils iproute2 socat openssh-client
+          qemu-system-x86_64 --version
+
+      - name: Download cloud image
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Downloading Ubuntu 24.04 cloud image..."
+          curl -sSfL -o "${CLOUD_IMG}" "${CLOUD_IMG_URL}"
+          ls -lh "${CLOUD_IMG}"
+
+      - name: Generate SSH keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-ssh
+          ssh-keygen -t ed25519 -f .ci-ssh/id_ed25519 -N "" -q
+          chmod 600 .ci-ssh/id_ed25519
+          chmod 644 .ci-ssh/id_ed25519.pub
+          echo "SSH_KEY=$(pwd)/.ci-ssh/id_ed25519" >> "$GITHUB_ENV"
+          echo "SSH_PUB_KEY=$(cat .ci-ssh/id_ed25519.pub)" >> "$GITHUB_ENV"
+
+      - name: Set up bridge network
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          sudo ip link add "${BRIDGE_NAME}" type bridge
+          sudo ip addr add "${BRIDGE_IP}/24" dev "${BRIDGE_NAME}"
+          sudo ip link set "${BRIDGE_NAME}" up
+
+          # Enable IP forwarding and NAT so VMs can reach the internet
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 ! -o "${BRIDGE_NAME}" -j MASQUERADE
+          sudo iptables -A FORWARD -i "${BRIDGE_NAME}" -j ACCEPT
+          sudo iptables -A FORWARD -o "${BRIDGE_NAME}" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+          ip addr show "${BRIDGE_NAME}"
+          pass "Bridge network ${BRIDGE_NAME} configured at ${BRIDGE_IP}/24"
+
+      - name: Create VM disks and cloud-init
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vms
+
+          create_vm_disk() {
+            local name="$1" ip="$2"
+
+            # Create a CoW overlay so the base image stays read-only
+            qemu-img create -f qcow2 -b "$(pwd)/${CLOUD_IMG}" -F qcow2 "vms/${name}.qcow2" 20G
+
+            # Cloud-init: user-data
+            cat > "vms/${name}-user-data" <<USERDATA
+          #cloud-config
+          hostname: ${name}
+          manage_etc_hosts: true
+          users:
+            - name: ubuntu
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - ${SSH_PUB_KEY}
+          package_update: true
+          packages:
+            - curl
+            - openssh-server
+          runcmd:
+            - systemctl enable --now ssh
+          USERDATA
+
+            # Cloud-init: network-config (static IP on the bridge)
+            cat > "vms/${name}-network-config" <<NETCFG
+          version: 2
+          ethernets:
+            enp0s3:
+              dhcp4: false
+              addresses:
+                - ${ip}/24
+              routes:
+                - to: default
+                  via: ${BRIDGE_IP}
+              nameservers:
+                addresses:
+                  - 8.8.8.8
+                  - 8.8.4.4
+          NETCFG
+
+            # Cloud-init: meta-data
+            cat > "vms/${name}-meta-data" <<META
+          instance-id: ${name}
+          local-hostname: ${name}
+          META
+
+            # Create the cloud-init ISO
+            cloud-localds -v \
+              --network-config "vms/${name}-network-config" \
+              "vms/${name}-cidata.iso" \
+              "vms/${name}-user-data" \
+              "vms/${name}-meta-data"
+          }
+
+          create_vm_disk "server" "${SERVER_IP}"
+          create_vm_disk "agent1" "${AGENT1_IP}"
+          create_vm_disk "agent2" "${AGENT2_IP}"
+
+          ls -lh vms/
+
+      - name: Start VMs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ACCEL_OPTS=""
+          if [ "${KVM_ACCEL}" = "true" ]; then
+            ACCEL_OPTS="-enable-kvm -cpu host"
+          else
+            ACCEL_OPTS="-cpu qemu64"
+          fi
+
+          # Create TAP interfaces for each VM
+          for tap in tap-server tap-agent1 tap-agent2; do
+            sudo ip tuntap add dev "${tap}" mode tap
+            sudo ip link set "${tap}" master "${BRIDGE_NAME}"
+            sudo ip link set "${tap}" up
+          done
+
+          start_vm() {
+            local name="$1" tap="$2" ssh_port="$3" mac="$4"
+
+            echo "Starting VM: ${name} (tap=${tap}, ssh_port=${ssh_port})"
+            sudo qemu-system-x86_64 \
+              ${ACCEL_OPTS} \
+              -m "${VM_MEMORY}" \
+              -smp "${VM_CPUS}" \
+              -drive file="vms/${name}.qcow2",format=qcow2,if=virtio \
+              -drive file="vms/${name}-cidata.iso",format=raw,if=virtio \
+              -netdev tap,id=net0,ifname="${tap}",script=no,downscript=no \
+              -device virtio-net-pci,netdev=net0,mac="${mac}" \
+              -nographic \
+              -serial file:"vms/${name}-serial.log" \
+              -pidfile "vms/${name}.pid" \
+              -daemonize
+          }
+
+          start_vm "server" "tap-server" "${SSH_PORT_SERVER}" "52:54:00:00:00:10"
+          start_vm "agent1" "tap-agent1" "${SSH_PORT_AGENT1}" "52:54:00:00:00:11"
+          start_vm "agent2" "tap-agent2" "${SSH_PORT_AGENT2}" "52:54:00:00:00:12"
+
+          echo "All VMs started. Waiting for boot..."
+
+      - name: Wait for VMs to be reachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -i ${SSH_KEY}"
+
+          wait_for_vm() {
+            local name="$1" ip="$2"
+            local attempt=0 max=60
+
+            echo "Waiting for ${name} (${ip}) to become reachable..."
+            while [ $attempt -lt $max ]; do
+              if ssh ${SSH_OPTS} "ubuntu@${ip}" "echo ok" >/dev/null 2>&1; then
+                pass "${name} (${ip}) is reachable via SSH"
+                return 0
+              fi
+              attempt=$((attempt + 1))
+              sleep 5
+            done
+            fail "${name} (${ip}) did not become reachable after $((max * 5))s"
+          }
+
+          wait_for_vm "server" "${SERVER_IP}"
+          wait_for_vm "agent1" "${AGENT1_IP}"
+          wait_for_vm "agent2" "${AGENT2_IP}"
+
+      - name: Validate prerequisites on VMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -i ${SSH_KEY}"
+
+          validate_vm() {
+            local name="$1" ip="$2"
+
+            echo "=== Validating ${name} (${ip}) ==="
+
+            # Check systemd
+            local pid1
+            pid1=$(ssh ${SSH_OPTS} "ubuntu@${ip}" "ps -p 1 -o comm=")
+            [ "${pid1}" = "systemd" ] || fail "${name}: PID 1 is '${pid1}', not systemd"
+            pass "${name}: systemd is PID 1"
+
+            # Check passwordless sudo
+            ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo -n true" || fail "${name}: passwordless sudo unavailable"
+            pass "${name}: passwordless sudo works"
+
+            # Check connectivity between VMs
+            ssh ${SSH_OPTS} "ubuntu@${ip}" "ping -c 1 -W 2 ${SERVER_IP}" >/dev/null 2>&1 || \
+              fail "${name}: cannot reach server at ${SERVER_IP}"
+            pass "${name}: can reach server"
+
+            # Check internet connectivity (needed for K3s install)
+            ssh ${SSH_OPTS} "ubuntu@${ip}" "curl -sf --max-time 10 https://get.k3s.io >/dev/null" || \
+              fail "${name}: cannot reach https://get.k3s.io"
+            pass "${name}: internet connectivity OK"
+          }
+
+          validate_vm "server" "${SERVER_IP}"
+          validate_vm "agent1" "${AGENT1_IP}"
+          validate_vm "agent2" "${AGENT2_IP}"
+
+      - name: Write cluster config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > k3sctl.yaml <<EOF
+          apiVersion: k3sctl.k3sproject.io/v1beta1
+          kind: Cluster
+          metadata:
+            name: ci-multinode
+          spec:
+            hosts:
+              - role: server
+                ssh:
+                  address: ${SERVER_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${SERVER_IP}
+                hostname: server
+              - role: agent
+                ssh:
+                  address: ${AGENT1_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${AGENT1_IP}
+                hostname: agent1
+              - role: agent
+                ssh:
+                  address: ${AGENT2_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${AGENT2_IP}
+                hostname: agent2
+            k3s:
+              version: "${K3S_VERSION}"
+          EOF
+          echo "--- k3sctl.yaml ---"
+          cat k3sctl.yaml
+
+      - name: Apply (install K3s cluster)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./k3sctl --debug apply -c k3sctl.yaml 2>&1 | tee apply.log
+
+      - name: Verify cluster is running
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -i ${SSH_KEY}"
+
+          # Check config status
+          ./k3sctl config status -c k3sctl.yaml > status.out 2>&1
+          cat status.out
+          grep -q 'running' status.out || fail "config status does not report hosts as running"
+          pass "config status reports running"
+
+          # Check K3s version on server
+          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s --version" > k3s-version.out
+          cat k3s-version.out
+          grep -Fq "${K3S_VERSION}" k3s-version.out || fail "installed K3s version does not match ${K3S_VERSION}"
+          pass "installed version matches ${K3S_VERSION}"
+
+          # Check k3s.service is active on server
+          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "systemctl is-active --quiet k3s" || fail "k3s.service is not active on server"
+          pass "k3s.service is active on server"
+
+          # Check k3s-agent.service is active on agents
+          for agent_ip in "${AGENT1_IP}" "${AGENT2_IP}"; do
+            ssh ${SSH_OPTS} "ubuntu@${agent_ip}" "systemctl is-active --quiet k3s-agent" || \
+              fail "k3s-agent.service is not active on ${agent_ip}"
+            pass "k3s-agent.service is active on ${agent_ip}"
+          done
+
+          # Verify all 3 nodes are Ready
+          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s kubectl get nodes" > nodes.out
+          cat nodes.out
+          node_count=$(grep -c ' Ready ' nodes.out || true)
+          [ "${node_count}" -eq 3 ] || fail "expected 3 Ready nodes, got ${node_count}"
+          pass "all 3 nodes are Ready"
+
+          # List pods across all namespaces
+          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s kubectl get pods -A" > pods.out
+          cat pods.out
+
+      - name: Kubeconfig command
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          ./k3sctl kubeconfig -c k3sctl.yaml --api-address "https://${SERVER_IP}:6443" \
+            > kubeconfig.yaml 2> kubeconfig.log
+          cat kubeconfig.log
+          grep -q "server: https://${SERVER_IP}:6443" kubeconfig.yaml || \
+            fail "kubeconfig has an unexpected API address"
+          pass "kubeconfig points at the requested API address"
+
+      - name: Capture failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=5 -i ${SSH_KEY}"
+
+          collect_diag() {
+            local name="$1" ip="$2" service="$3"
+            echo "=== ${name} (${ip}) ==="
+            {
+              echo "--- systemctl status ${service} ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "systemctl status ${service} --no-pager" 2>&1
+              echo "--- journalctl -u ${service} (last 100) ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo journalctl -u ${service} --no-pager -n 100" 2>&1
+              echo "--- /etc/rancher/k3s ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo ls -la /etc/rancher/k3s" 2>&1
+              echo "--- /var/lib/rancher/k3s ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo ls -la /var/lib/rancher/k3s" 2>&1
+              echo "--- free -m ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "free -m" 2>&1
+              echo "--- df -h ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "df -h" 2>&1
+            }
+          }
+
+          {
+            collect_diag "server" "${SERVER_IP}" "k3s"
+            collect_diag "agent1" "${AGENT1_IP}" "k3s-agent"
+            collect_diag "agent2" "${AGENT2_IP}" "k3s-agent"
+          } > diagnostics.log 2>&1
+          cat diagnostics.log
+
+          # Also grab serial console logs
+          for vm in server agent1 agent2; do
+            if [ -f "vms/${vm}-serial.log" ]; then
+              echo "=== Serial log: ${vm} ==="
+              tail -200 "vms/${vm}-serial.log"
+            fi
+          done > serial-logs.log 2>&1
+          cat serial-logs.log
+
+      - name: Reset (remove K3s)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -x ./k3sctl ] || [ ! -f k3sctl.yaml ]; then
+            echo "::warning::skipping reset: build or config missing"
+            exit 0
+          fi
+          ./k3sctl reset -c k3sctl.yaml --force 2>&1 | tee reset.log || true
+
+      - name: Shut down VMs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for vm in server agent1 agent2; do
+            if [ -f "vms/${vm}.pid" ]; then
+              pid=$(cat "vms/${vm}.pid")
+              echo "Stopping VM ${vm} (PID ${pid})"
+              sudo kill "${pid}" 2>/dev/null || true
+            fi
+          done
+          sleep 2
+          # Force-kill any remaining QEMU processes
+          sudo pkill -9 qemu-system || true
+
+      - name: Clean up networking
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for tap in tap-server tap-agent1 tap-agent2; do
+            sudo ip link delete "${tap}" 2>/dev/null || true
+          done
+          sudo ip link delete "${BRIDGE_NAME}" 2>/dev/null || true
+          sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nested-vm-multinode-logs
+          path: |
+            apply.log
+            reset.log
+            status.out
+            nodes.out
+            pods.out
+            kubeconfig.log
+            kubeconfig.yaml
+            k3s-version.out
+            diagnostics.log
+            serial-logs.log
+            k3sctl.yaml
+            vms/*-serial.log
+          if-no-files-found: ignore
+          retention-days: 7
