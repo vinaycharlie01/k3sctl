@@ -59,7 +59,7 @@ jobs:
   multinode:
     name: 3-node cluster (1 server + 2 agents)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -148,9 +148,6 @@ jobs:
               ssh_authorized_keys:
                 - ${SSH_PUB_KEY}
           package_update: false
-          packages:
-            - curl
-            - openssh-server
           bootcmd:
             - ['sh', '-c', 'echo "blacklist floppy" > /etc/modprobe.d/blacklist-floppy.conf']
             - ['sh', '-c', 'rmmod floppy 2>/dev/null || true']
@@ -256,7 +253,7 @@ jobs:
 
           wait_for_vm() {
             local name="$1" port="$2"
-            local attempt=0 max=120
+            local attempt=0 max=250
 
             echo "Waiting for ${name} (localhost:${port}) to become reachable..."
             while [ $attempt -lt $max ]; do
