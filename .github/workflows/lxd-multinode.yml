@@ -228,7 +228,6 @@ jobs:
             pass "${name}: passwordless sudo works"
 
             # Check systemd is PID 1
-            local pid1
             pid1=$(ssh ${SSH_OPTS} "ubuntu@${ip}" "ps -p 1 -o comm=")
             [ "${pid1}" = "systemd" ] || fail "${name}: PID 1 is '${pid1}', not systemd"
             pass "${name}: systemd is PID 1"
