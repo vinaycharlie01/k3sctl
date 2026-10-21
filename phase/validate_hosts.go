@@ -27,11 +27,11 @@ func (p *ValidateHosts) Run(ctx context.Context) error {
 
 	seen := make(map[string]bool)
 	for _, h := range hosts {
-		addr := h.Address()
-		if seen[addr] {
-			return fmt.Errorf("duplicate host address: %s", addr)
+		key := h.UniqueEndpoint()
+		if seen[key] {
+			return fmt.Errorf("duplicate host address: %s", key)
 		}
-		seen[addr] = true
+		seen[key] = true
 	}
 
 	for _, h := range hosts {

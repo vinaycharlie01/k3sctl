@@ -232,6 +232,9 @@ jobs:
           start_vm "agent1" "${SSH_PORT_AGENT1}" "11"
           start_vm "agent2" "${SSH_PORT_AGENT2}" "12"
 
+          # Fix permissions on files created by sudo QEMU
+          sudo chmod 644 vms/*.pid vms/*-serial.log 2>/dev/null || true
+
           echo "All VMs started. Waiting for boot..."
 
       - name: Wait for VMs to be reachable

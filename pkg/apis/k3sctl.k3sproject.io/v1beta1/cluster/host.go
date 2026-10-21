@@ -125,6 +125,19 @@ func (h *Host) Address() string {
 	return ""
 }
 
+func (h *Host) UniqueEndpoint() string {
+	if h.SSH != nil {
+		return fmt.Sprintf("%s:%d", h.SSH.Address, h.SSH.Port)
+	}
+	if h.OpenSSH != nil {
+		return h.OpenSSH.Address
+	}
+	if h.Localhost {
+		return "localhost"
+	}
+	return ""
+}
+
 func (h *Host) Protocol() string {
 	if h.SSH != nil {
 		return "ssh"
