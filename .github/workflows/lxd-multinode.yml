@@ -23,7 +23,7 @@ name: LXD Multi-Node K3s
 on:
   push:
     branches:
-      - lxd-ci
+      - lex-sdk
     paths:
       - ".github/workflows/lxd-multinode.yml"
       - "integration/**"
