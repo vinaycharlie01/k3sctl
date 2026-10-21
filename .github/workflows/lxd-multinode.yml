@@ -82,8 +82,6 @@ jobs:
             raw.lxc: |
               lxc.apparmor.profile=unconfined
               lxc.mount.auto=proc:rw sys:rw
-              lxc.cgroup.devices.allow=a
-              lxc.cap.drop=
           description: Profile for running K3s inside LXD containers
           devices: {}
           EOF
