@@ -225,7 +225,6 @@ jobs:
               -device virtio-net-pci,netdev=inet0,mac="52:54:00:aa:00:${mac_suffix}" \
               -netdev socket,id=cluster0,mcast="${MCAST_ADDR}" \
               -device virtio-net-pci,netdev=cluster0,mac="52:54:00:bb:00:${mac_suffix}" \
-              -global isa-fdc.driveA= \
               -display none \
               -serial file:"vms/${name}-serial.log" \
               -pidfile "vms/${name}.pid" \
@@ -236,10 +235,15 @@ jobs:
           start_vm "agent1" "${SSH_PORT_AGENT1}" "11"
           start_vm "agent2" "${SSH_PORT_AGENT2}" "12"
 
-          # Fix permissions on files created by sudo QEMU
-          sudo chmod 644 vms/*.pid vms/*-serial.log 2>/dev/null || true
-
           echo "All VMs started. Waiting for boot..."
+
+      - name: Fix VM file permissions
+        if: always()
+        shell: bash
+        run: |
+          # QEMU runs as root so serial logs and pid files are root-owned.
+          # Fix permissions so later steps (diagnostics, upload) can read them.
+          sudo chmod 644 vms/*.pid vms/*-serial.log 2>/dev/null || true
 
       - name: Wait for VMs to be reachable
         shell: bash
