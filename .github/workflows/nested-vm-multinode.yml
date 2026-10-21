@@ -151,6 +151,9 @@ jobs:
           packages:
             - curl
             - openssh-server
+          bootcmd:
+            - ['sh', '-c', 'echo "blacklist floppy" > /etc/modprobe.d/blacklist-floppy.conf']
+            - ['sh', '-c', 'rmmod floppy 2>/dev/null || true']
           runcmd:
             - systemctl enable --now ssh
           USERDATA
@@ -222,6 +225,7 @@ jobs:
               -device virtio-net-pci,netdev=inet0,mac="52:54:00:aa:00:${mac_suffix}" \
               -netdev socket,id=cluster0,mcast="${MCAST_ADDR}" \
               -device virtio-net-pci,netdev=cluster0,mac="52:54:00:bb:00:${mac_suffix}" \
+              -global isa-fdc.driveA= \
               -display none \
               -serial file:"vms/${name}-serial.log" \
               -pidfile "vms/${name}.pid" \
@@ -248,12 +252,12 @@ jobs:
 
           wait_for_vm() {
             local name="$1" port="$2"
-            local attempt=0 max=60
+            local attempt=0 max=120
 
             echo "Waiting for ${name} (localhost:${port}) to become reachable..."
             while [ $attempt -lt $max ]; do
               if ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "echo ok" >/dev/null 2>&1; then
-                pass "${name} is reachable via SSH on port ${port}"
+                pass "${name} is reachable via SSH on port ${port} (after $((attempt * 5))s)"
                 return 0
               fi
               attempt=$((attempt + 1))
@@ -264,13 +268,27 @@ jobs:
             done
             # Dump serial log on timeout for debugging
             echo "=== Serial log for ${name} ==="
-            tail -100 "vms/${name}-serial.log" 2>/dev/null || echo "(no serial log)"
+            tail -200 "vms/${name}-serial.log" 2>/dev/null || echo "(no serial log)"
             fail "${name} did not become reachable after $((max * 5))s"
           }
 
-          wait_for_vm "server" "${SSH_PORT_SERVER}"
-          wait_for_vm "agent1" "${SSH_PORT_AGENT1}"
-          wait_for_vm "agent2" "${SSH_PORT_AGENT2}"
+          # Wait for all VMs in parallel (they're already booting concurrently)
+          pids=""
+          for vm_info in "server:${SSH_PORT_SERVER}" "agent1:${SSH_PORT_AGENT1}" "agent2:${SSH_PORT_AGENT2}"; do
+            name="${vm_info%%:*}"
+            port="${vm_info##*:}"
+            wait_for_vm "${name}" "${port}" &
+            pids="${pids} $!"
+          done
+
+          # Collect results — fail if any VM didn't come up
+          failed=0
+          for pid in $pids; do
+            if ! wait "$pid"; then
+              failed=$((failed + 1))
+            fi
+          done
+          [ $failed -eq 0 ] || fail "${failed} VM(s) failed to become reachable"
 
       - name: Validate prerequisites on VMs
         shell: bash
