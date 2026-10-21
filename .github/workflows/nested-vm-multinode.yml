@@ -5,6 +5,8 @@ name: Nested VM Multi-Node K3s
 #   - KVM acceleration with TCG fallback
 #   - Cloud-init provisioned with private networking (10.0.0.0/24)
 #   - Temporary SSH keys for secure access
+#   - QEMU user-mode networking (SSH via port forwarding) +
+#     socket multicast (inter-VM L2 for K3s cluster traffic)
 #
 # This does NOT modify any existing workflow.
 
@@ -40,16 +42,18 @@ env:
   K3S_VERSION: ${{ inputs.k3s_version || 'v1.37.1+k3s1' }}
   VM_MEMORY: ${{ inputs.vm_memory || '2048' }}
   VM_CPUS: ${{ inputs.vm_cpus || '2' }}
+  # Private IPs on the socket multicast network (inter-VM)
   SERVER_IP: "10.0.0.10"
   AGENT1_IP: "10.0.0.11"
   AGENT2_IP: "10.0.0.12"
-  BRIDGE_IP: "10.0.0.1"
-  BRIDGE_NAME: "k3sbr0"
+  # SSH port-forwarding via QEMU user-mode networking
   SSH_PORT_SERVER: "2222"
   SSH_PORT_AGENT1: "2223"
   SSH_PORT_AGENT2: "2224"
   CLOUD_IMG_URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
   CLOUD_IMG: "ubuntu-24.04-cloud.img"
+  # Multicast group for QEMU socket networking (inter-VM L2)
+  MCAST_ADDR: "230.0.0.1:1234"
 
 jobs:
   multinode:
@@ -91,14 +95,14 @@ jobs:
             echo "::warning::KVM not available, falling back to TCG (slower)"
           fi
 
-      - name: Install QEMU and networking tools
+      - name: Install QEMU
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             qemu-system-x86 qemu-utils cloud-image-utils \
-            bridge-utils iproute2 socat openssh-client
+            openssh-client
           qemu-system-x86_64 --version
 
       - name: Download cloud image
@@ -120,26 +124,6 @@ jobs:
           echo "SSH_KEY=$(pwd)/.ci-ssh/id_ed25519" >> "$GITHUB_ENV"
           echo "SSH_PUB_KEY=$(cat .ci-ssh/id_ed25519.pub)" >> "$GITHUB_ENV"
 
-      - name: Set up bridge network
-        shell: bash
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-          pass() { echo "PASS: $*"; }
-
-          sudo ip link add "${BRIDGE_NAME}" type bridge
-          sudo ip addr add "${BRIDGE_IP}/24" dev "${BRIDGE_NAME}"
-          sudo ip link set "${BRIDGE_NAME}" up
-
-          # Enable IP forwarding and NAT so VMs can reach the internet
-          sudo sysctl -w net.ipv4.ip_forward=1
-          sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 ! -o "${BRIDGE_NAME}" -j MASQUERADE
-          sudo iptables -A FORWARD -i "${BRIDGE_NAME}" -j ACCEPT
-          sudo iptables -A FORWARD -o "${BRIDGE_NAME}" -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-          ip addr show "${BRIDGE_NAME}"
-          pass "Bridge network ${BRIDGE_NAME} configured at ${BRIDGE_IP}/24"
-
       - name: Create VM disks and cloud-init
         shell: bash
         run: |
@@ -147,7 +131,7 @@ jobs:
           mkdir -p vms
 
           create_vm_disk() {
-            local name="$1" ip="$2"
+            local name="$1" ip="$2" mac="$3"
 
             # Create a CoW overlay so the base image stays read-only
             qemu-img create -f qcow2 -b "$(pwd)/${CLOUD_IMG}" -F qcow2 "vms/${name}.qcow2" 20G
@@ -163,7 +147,7 @@ jobs:
               shell: /bin/bash
               ssh_authorized_keys:
                 - ${SSH_PUB_KEY}
-          package_update: true
+          package_update: false
           packages:
             - curl
             - openssh-server
@@ -171,21 +155,22 @@ jobs:
             - systemctl enable --now ssh
           USERDATA
 
-            # Cloud-init: network-config (static IP on the bridge)
+            # Cloud-init: network-config
+            # NIC1 (user-mode / DHCP): internet + SSH from host
+            # NIC2 (socket multicast): inter-VM private network, matched by MAC
             cat > "vms/${name}-network-config" <<NETCFG
           version: 2
           ethernets:
-            enp0s3:
+            inet:
+              match:
+                macaddress: "52:54:00:aa:00:${mac}"
+              dhcp4: true
+            cluster:
+              match:
+                macaddress: "52:54:00:bb:00:${mac}"
               dhcp4: false
               addresses:
                 - ${ip}/24
-              routes:
-                - to: default
-                  via: ${BRIDGE_IP}
-              nameservers:
-                addresses:
-                  - 8.8.8.8
-                  - 8.8.4.4
           NETCFG
 
             # Cloud-init: meta-data
@@ -202,9 +187,10 @@ jobs:
               "vms/${name}-meta-data"
           }
 
-          create_vm_disk "server" "${SERVER_IP}"
-          create_vm_disk "agent1" "${AGENT1_IP}"
-          create_vm_disk "agent2" "${AGENT2_IP}"
+          # Each VM gets a unique MAC suffix for both NICs
+          create_vm_disk "server" "${SERVER_IP}" "10"
+          create_vm_disk "agent1" "${AGENT1_IP}" "11"
+          create_vm_disk "agent2" "${AGENT2_IP}" "12"
 
           ls -lh vms/
 
@@ -220,34 +206,31 @@ jobs:
             ACCEL_OPTS="-cpu qemu64"
           fi
 
-          # Create TAP interfaces for each VM
-          for tap in tap-server tap-agent1 tap-agent2; do
-            sudo ip tuntap add dev "${tap}" mode tap
-            sudo ip link set "${tap}" master "${BRIDGE_NAME}"
-            sudo ip link set "${tap}" up
-          done
-
           start_vm() {
-            local name="$1" tap="$2" ssh_port="$3" mac="$4"
+            local name="$1" ssh_port="$2" mac_suffix="$3"
 
-            echo "Starting VM: ${name} (tap=${tap}, ssh_port=${ssh_port})"
+            echo "Starting VM: ${name} (ssh_port=${ssh_port})"
+            # NIC1: user-mode networking (DHCP + SSH port-forward + internet)
+            # NIC2: socket multicast (inter-VM L2 segment for K3s)
             sudo qemu-system-x86_64 \
               ${ACCEL_OPTS} \
               -m "${VM_MEMORY}" \
               -smp "${VM_CPUS}" \
               -drive file="vms/${name}.qcow2",format=qcow2,if=virtio \
               -drive file="vms/${name}-cidata.iso",format=raw,if=virtio \
-              -netdev tap,id=net0,ifname="${tap}",script=no,downscript=no \
-              -device virtio-net-pci,netdev=net0,mac="${mac}" \
+              -netdev user,id=inet0,hostfwd=tcp::${ssh_port}-:22 \
+              -device virtio-net-pci,netdev=inet0,mac="52:54:00:aa:00:${mac_suffix}" \
+              -netdev socket,id=cluster0,mcast="${MCAST_ADDR}" \
+              -device virtio-net-pci,netdev=cluster0,mac="52:54:00:bb:00:${mac_suffix}" \
               -display none \
               -serial file:"vms/${name}-serial.log" \
               -pidfile "vms/${name}.pid" \
               -daemonize
           }
 
-          start_vm "server" "tap-server" "${SSH_PORT_SERVER}" "52:54:00:00:00:10"
-          start_vm "agent1" "tap-agent1" "${SSH_PORT_AGENT1}" "52:54:00:00:00:11"
-          start_vm "agent2" "tap-agent2" "${SSH_PORT_AGENT2}" "52:54:00:00:00:12"
+          start_vm "server" "${SSH_PORT_SERVER}" "10"
+          start_vm "agent1" "${SSH_PORT_AGENT1}" "11"
+          start_vm "agent2" "${SSH_PORT_AGENT2}" "12"
 
           echo "All VMs started. Waiting for boot..."
 
@@ -261,24 +244,30 @@ jobs:
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -i ${SSH_KEY}"
 
           wait_for_vm() {
-            local name="$1" ip="$2"
+            local name="$1" port="$2"
             local attempt=0 max=60
 
-            echo "Waiting for ${name} (${ip}) to become reachable..."
+            echo "Waiting for ${name} (localhost:${port}) to become reachable..."
             while [ $attempt -lt $max ]; do
-              if ssh ${SSH_OPTS} "ubuntu@${ip}" "echo ok" >/dev/null 2>&1; then
-                pass "${name} (${ip}) is reachable via SSH"
+              if ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "echo ok" >/dev/null 2>&1; then
+                pass "${name} is reachable via SSH on port ${port}"
                 return 0
               fi
               attempt=$((attempt + 1))
+              if [ $((attempt % 12)) -eq 0 ]; then
+                echo "  still waiting for ${name}... (${attempt}/${max}, $((attempt * 5))s elapsed)"
+              fi
               sleep 5
             done
-            fail "${name} (${ip}) did not become reachable after $((max * 5))s"
+            # Dump serial log on timeout for debugging
+            echo "=== Serial log for ${name} ==="
+            tail -100 "vms/${name}-serial.log" 2>/dev/null || echo "(no serial log)"
+            fail "${name} did not become reachable after $((max * 5))s"
           }
 
-          wait_for_vm "server" "${SERVER_IP}"
-          wait_for_vm "agent1" "${AGENT1_IP}"
-          wait_for_vm "agent2" "${AGENT2_IP}"
+          wait_for_vm "server" "${SSH_PORT_SERVER}"
+          wait_for_vm "agent1" "${SSH_PORT_AGENT1}"
+          wait_for_vm "agent2" "${SSH_PORT_AGENT2}"
 
       - name: Validate prerequisites on VMs
         shell: bash
@@ -290,39 +279,53 @@ jobs:
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -i ${SSH_KEY}"
 
           validate_vm() {
-            local name="$1" ip="$2"
+            local name="$1" port="$2" cluster_ip="$3"
 
-            echo "=== Validating ${name} (${ip}) ==="
+            echo "=== Validating ${name} (port ${port}, cluster IP ${cluster_ip}) ==="
 
             # Check systemd
             local pid1
-            pid1=$(ssh ${SSH_OPTS} "ubuntu@${ip}" "ps -p 1 -o comm=")
+            pid1=$(ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "ps -p 1 -o comm=")
             [ "${pid1}" = "systemd" ] || fail "${name}: PID 1 is '${pid1}', not systemd"
             pass "${name}: systemd is PID 1"
 
             # Check passwordless sudo
-            ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo -n true" || fail "${name}: passwordless sudo unavailable"
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "sudo -n true" || \
+              fail "${name}: passwordless sudo unavailable"
             pass "${name}: passwordless sudo works"
 
-            # Check connectivity between VMs
-            ssh ${SSH_OPTS} "ubuntu@${ip}" "ping -c 1 -W 2 ${SERVER_IP}" >/dev/null 2>&1 || \
+            # Show network interfaces for debugging
+            echo "--- ${name} network ---"
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "ip addr"
+
+            # Check that the cluster IP was assigned
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "ip addr | grep -q '${cluster_ip}'" || \
+              fail "${name}: cluster IP ${cluster_ip} not assigned"
+            pass "${name}: cluster IP ${cluster_ip} is assigned"
+
+            # Check connectivity to server on the cluster network
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" \
+              "ping -c 1 -W 3 ${SERVER_IP}" >/dev/null 2>&1 || \
               fail "${name}: cannot reach server at ${SERVER_IP}"
-            pass "${name}: can reach server"
+            pass "${name}: can reach server on cluster network"
 
             # Check internet connectivity (needed for K3s install)
-            ssh ${SSH_OPTS} "ubuntu@${ip}" "curl -sf --max-time 10 https://get.k3s.io >/dev/null" || \
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" \
+              "curl -sf --max-time 10 https://get.k3s.io >/dev/null" || \
               fail "${name}: cannot reach https://get.k3s.io"
             pass "${name}: internet connectivity OK"
           }
 
-          validate_vm "server" "${SERVER_IP}"
-          validate_vm "agent1" "${AGENT1_IP}"
-          validate_vm "agent2" "${AGENT2_IP}"
+          validate_vm "server" "${SSH_PORT_SERVER}" "${SERVER_IP}"
+          validate_vm "agent1" "${SSH_PORT_AGENT1}" "${AGENT1_IP}"
+          validate_vm "agent2" "${SSH_PORT_AGENT2}" "${AGENT2_IP}"
 
       - name: Write cluster config
         shell: bash
         run: |
           set -euo pipefail
+          # k3sctl connects to VMs via SSH port-forwarding on localhost.
+          # privateAddress is the cluster-internal IP on the socket network.
           cat > k3sctl.yaml <<EOF
           apiVersion: k3sctl.k3sproject.io/v1beta1
           kind: Cluster
@@ -332,26 +335,26 @@ jobs:
             hosts:
               - role: server
                 ssh:
-                  address: ${SERVER_IP}
+                  address: 127.0.0.1
                   user: ubuntu
                   keyPath: ${SSH_KEY}
-                  port: 22
+                  port: ${SSH_PORT_SERVER}
                 privateAddress: ${SERVER_IP}
                 hostname: server
               - role: agent
                 ssh:
-                  address: ${AGENT1_IP}
+                  address: 127.0.0.1
                   user: ubuntu
                   keyPath: ${SSH_KEY}
-                  port: 22
+                  port: ${SSH_PORT_AGENT1}
                 privateAddress: ${AGENT1_IP}
                 hostname: agent1
               - role: agent
                 ssh:
-                  address: ${AGENT2_IP}
+                  address: 127.0.0.1
                   user: ubuntu
                   keyPath: ${SSH_KEY}
-                  port: 22
+                  port: ${SSH_PORT_AGENT2}
                 privateAddress: ${AGENT2_IP}
                 hostname: agent2
             k3s:
@@ -382,31 +385,37 @@ jobs:
           pass "config status reports running"
 
           # Check K3s version on server
-          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s --version" > k3s-version.out
+          ssh ${SSH_OPTS} -p "${SSH_PORT_SERVER}" "ubuntu@127.0.0.1" \
+            "sudo /usr/local/bin/k3s --version" > k3s-version.out
           cat k3s-version.out
-          grep -Fq "${K3S_VERSION}" k3s-version.out || fail "installed K3s version does not match ${K3S_VERSION}"
+          grep -Fq "${K3S_VERSION}" k3s-version.out || \
+            fail "installed K3s version does not match ${K3S_VERSION}"
           pass "installed version matches ${K3S_VERSION}"
 
           # Check k3s.service is active on server
-          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "systemctl is-active --quiet k3s" || fail "k3s.service is not active on server"
+          ssh ${SSH_OPTS} -p "${SSH_PORT_SERVER}" "ubuntu@127.0.0.1" \
+            "systemctl is-active --quiet k3s" || fail "k3s.service is not active on server"
           pass "k3s.service is active on server"
 
           # Check k3s-agent.service is active on agents
-          for agent_ip in "${AGENT1_IP}" "${AGENT2_IP}"; do
-            ssh ${SSH_OPTS} "ubuntu@${agent_ip}" "systemctl is-active --quiet k3s-agent" || \
-              fail "k3s-agent.service is not active on ${agent_ip}"
-            pass "k3s-agent.service is active on ${agent_ip}"
+          for port in "${SSH_PORT_AGENT1}" "${SSH_PORT_AGENT2}"; do
+            ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" \
+              "systemctl is-active --quiet k3s-agent" || \
+              fail "k3s-agent.service is not active on port ${port}"
+            pass "k3s-agent.service is active on port ${port}"
           done
 
           # Verify all 3 nodes are Ready
-          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s kubectl get nodes" > nodes.out
+          ssh ${SSH_OPTS} -p "${SSH_PORT_SERVER}" "ubuntu@127.0.0.1" \
+            "sudo /usr/local/bin/k3s kubectl get nodes" > nodes.out
           cat nodes.out
           node_count=$(grep -c ' Ready ' nodes.out || true)
           [ "${node_count}" -eq 3 ] || fail "expected 3 Ready nodes, got ${node_count}"
           pass "all 3 nodes are Ready"
 
           # List pods across all namespaces
-          ssh ${SSH_OPTS} "ubuntu@${SERVER_IP}" "sudo /usr/local/bin/k3s kubectl get pods -A" > pods.out
+          ssh ${SSH_OPTS} -p "${SSH_PORT_SERVER}" "ubuntu@127.0.0.1" \
+            "sudo /usr/local/bin/k3s kubectl get pods -A" > pods.out
           cat pods.out
 
       - name: Kubeconfig command
@@ -431,28 +440,32 @@ jobs:
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=5 -i ${SSH_KEY}"
 
           collect_diag() {
-            local name="$1" ip="$2" service="$3"
-            echo "=== ${name} (${ip}) ==="
+            local name="$1" port="$2" service="$3"
+            echo "=== ${name} (port ${port}) ==="
             {
+              echo "--- ip addr ---"
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "ip addr" 2>&1
               echo "--- systemctl status ${service} ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "systemctl status ${service} --no-pager" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "systemctl status ${service} --no-pager" 2>&1
               echo "--- journalctl -u ${service} (last 100) ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo journalctl -u ${service} --no-pager -n 100" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "sudo journalctl -u ${service} --no-pager -n 100" 2>&1
               echo "--- /etc/rancher/k3s ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo ls -la /etc/rancher/k3s" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "sudo ls -la /etc/rancher/k3s" 2>&1
               echo "--- /var/lib/rancher/k3s ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo ls -la /var/lib/rancher/k3s" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "sudo ls -la /var/lib/rancher/k3s" 2>&1
               echo "--- free -m ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "free -m" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "free -m" 2>&1
               echo "--- df -h ---"
-              ssh ${SSH_OPTS} "ubuntu@${ip}" "df -h" 2>&1
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "df -h" 2>&1
+              echo "--- cloud-init status ---"
+              ssh ${SSH_OPTS} -p "${port}" "ubuntu@127.0.0.1" "cloud-init status --long" 2>&1
             }
           }
 
           {
-            collect_diag "server" "${SERVER_IP}" "k3s"
-            collect_diag "agent1" "${AGENT1_IP}" "k3s-agent"
-            collect_diag "agent2" "${AGENT2_IP}" "k3s-agent"
+            collect_diag "server" "${SSH_PORT_SERVER}" "k3s"
+            collect_diag "agent1" "${SSH_PORT_AGENT1}" "k3s-agent"
+            collect_diag "agent2" "${SSH_PORT_AGENT2}" "k3s-agent"
           } > diagnostics.log 2>&1
           cat diagnostics.log
 
@@ -491,17 +504,6 @@ jobs:
           sleep 2
           # Force-kill any remaining QEMU processes
           sudo pkill -9 qemu-system || true
-
-      - name: Clean up networking
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          for tap in tap-server tap-agent1 tap-agent2; do
-            sudo ip link delete "${tap}" 2>/dev/null || true
-          done
-          sudo ip link delete "${BRIDGE_NAME}" 2>/dev/null || true
-          sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null || true
 
       - name: Upload logs
         if: always()
