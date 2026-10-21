@@ -1,0 +1,444 @@
+name: Multipass Multi-Node K3s
+
+# Three-node K3s cluster test using Multipass VMs:
+#   - 1 server node + 2 agent nodes as Ubuntu 24.04 VMs
+#   - Requires KVM (skips gracefully on runners without /dev/kvm)
+#   - Much faster than raw QEMU/TCG (~seconds vs ~10 minutes to boot)
+#   - VMs share Multipass's default bridge for inter-VM traffic
+#   - SSH via cloud-init injected keys
+#
+# Reference: https://github.com/josecelano/github-actions-virtualization-support
+# This does NOT modify any existing workflow.
+
+on:
+  push:
+    branches:
+      - multipass-ci
+    paths:
+      - ".github/workflows/multipass-multinode.yml"
+  workflow_dispatch:
+    inputs:
+      k3s_version:
+        description: "K3s version to install (must start with 'v')"
+        required: false
+        default: "v1.37.1+k3s1"
+      vm_memory:
+        description: "RAM per VM (e.g. 2G)"
+        required: false
+        default: "2G"
+      vm_cpus:
+        description: "vCPUs per VM"
+        required: false
+        default: "2"
+      vm_disk:
+        description: "Disk per VM (e.g. 10G)"
+        required: false
+        default: "10G"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multipass-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K3S_VERSION: ${{ inputs.k3s_version || 'v1.37.1+k3s1' }}
+  VM_MEMORY: ${{ inputs.vm_memory || '2G' }}
+  VM_CPUS: ${{ inputs.vm_cpus || '2' }}
+  VM_DISK: ${{ inputs.vm_disk || '10G' }}
+
+jobs:
+  multinode:
+    name: 3-node cluster via Multipass
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build CLI
+        run: task build
+
+      - name: Check KVM availability
+        id: kvm
+        run: |
+          if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "KVM is available"
+            ls -la /dev/kvm
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::KVM is not available — this workflow requires hardware virtualization. Skipping."
+            echo "Hint: use GitHub's larger runners or a self-hosted runner with KVM for this workflow."
+          fi
+
+      - name: Install Multipass
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          sudo snap install multipass --classic
+          sudo snap wait system seed.loaded
+          sleep 3
+          multipass version
+
+      - name: Generate SSH keys
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-ssh
+          ssh-keygen -t ed25519 -f .ci-ssh/id_ed25519 -N "" -q
+          chmod 600 .ci-ssh/id_ed25519
+          chmod 644 .ci-ssh/id_ed25519.pub
+          echo "SSH_KEY=$(pwd)/.ci-ssh/id_ed25519" >> "$GITHUB_ENV"
+          echo "SSH_PUB_KEY=$(cat .ci-ssh/id_ed25519.pub)" >> "$GITHUB_ENV"
+
+      - name: Create cloud-init configs
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p cloud-init
+
+          for name in server agent1 agent2; do
+            cat > "cloud-init/${name}.yaml" <<EOF
+          #cloud-config
+          hostname: ${name}
+          manage_etc_hosts: true
+          users:
+            - name: ubuntu
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - ${SSH_PUB_KEY}
+          package_update: false
+          packages:
+            - curl
+          runcmd:
+            - systemctl enable --now ssh
+          EOF
+          done
+
+          echo "--- Cloud-init configs ---"
+          ls -la cloud-init/
+
+      - name: Launch VMs
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+
+          launch_vm() {
+            local name="$1"
+            echo "Launching VM: ${name} (memory=${VM_MEMORY}, cpus=${VM_CPUS}, disk=${VM_DISK})"
+            sudo multipass launch 24.04 \
+              --name "${name}" \
+              --memory "${VM_MEMORY}" \
+              --cpus "${VM_CPUS}" \
+              --disk "${VM_DISK}" \
+              --cloud-init "cloud-init/${name}.yaml"
+          }
+
+          launch_vm "server"
+          launch_vm "agent1"
+          launch_vm "agent2"
+
+          echo "All VMs launched."
+
+      - name: Wait for VMs and get IPs
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          wait_for_vm() {
+            local name="$1"
+            local attempt=0 max=60
+
+            echo "Waiting for ${name} to be running..."
+            while [ $attempt -lt $max ]; do
+              state=$(sudo multipass info "${name}" --format csv 2>/dev/null | tail -1 | cut -d',' -f2 || true)
+              if [ "${state}" = "Running" ]; then
+                break
+              fi
+              attempt=$((attempt + 1))
+              sleep 2
+            done
+
+            if [ "${state}" != "Running" ]; then
+              fail "${name} did not reach Running state (current: ${state})"
+            fi
+
+            # Get the VM's IP address
+            local ip
+            ip=$(sudo multipass info "${name}" --format csv | tail -1 | cut -d',' -f3)
+            if [ -z "${ip}" ] || [ "${ip}" = "--" ]; then
+              fail "${name} has no IP address"
+            fi
+
+            pass "${name} is running at ${ip}"
+            echo "${name}_IP=${ip}" >> "$GITHUB_ENV"
+          }
+
+          wait_for_vm "server"
+          wait_for_vm "agent1"
+          wait_for_vm "agent2"
+
+          # Show all VMs
+          sudo multipass list
+
+      - name: Validate SSH and connectivity
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o BatchMode=yes -i ${SSH_KEY}"
+
+          validate_vm() {
+            local name="$1" ip="$2"
+
+            echo "=== Validating ${name} (${ip}) ==="
+
+            # SSH connectivity
+            ssh ${SSH_OPTS} "ubuntu@${ip}" "echo ok" >/dev/null || \
+              fail "${name}: SSH not reachable at ${ip}"
+            pass "${name}: SSH works"
+
+            # Passwordless sudo
+            ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo -n true" || \
+              fail "${name}: passwordless sudo unavailable"
+            pass "${name}: passwordless sudo works"
+
+            # Check systemd
+            local pid1
+            pid1=$(ssh ${SSH_OPTS} "ubuntu@${ip}" "ps -p 1 -o comm=")
+            [ "${pid1}" = "systemd" ] || fail "${name}: PID 1 is '${pid1}', not systemd"
+            pass "${name}: systemd is PID 1"
+
+            # Check internet access
+            ssh ${SSH_OPTS} "ubuntu@${ip}" \
+              "curl -sf --max-time 10 https://get.k3s.io >/dev/null" || \
+              fail "${name}: cannot reach https://get.k3s.io"
+            pass "${name}: internet connectivity OK"
+          }
+
+          validate_vm "server" "${server_IP}"
+          validate_vm "agent1" "${agent1_IP}"
+          validate_vm "agent2" "${agent2_IP}"
+
+          # Check inter-VM connectivity
+          echo "=== Inter-VM connectivity ==="
+          ssh ${SSH_OPTS} "ubuntu@${agent1_IP}" "ping -c 1 -W 3 ${server_IP}" >/dev/null || \
+            fail "agent1 cannot reach server at ${server_IP}"
+          pass "agent1 -> server connectivity OK"
+
+          ssh ${SSH_OPTS} "ubuntu@${agent2_IP}" "ping -c 1 -W 3 ${server_IP}" >/dev/null || \
+            fail "agent2 cannot reach server at ${server_IP}"
+          pass "agent2 -> server connectivity OK"
+
+      - name: Write cluster config
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          cat > k3sctl.yaml <<EOF
+          apiVersion: k3sctl.k3sproject.io/v1beta1
+          kind: Cluster
+          metadata:
+            name: ci-multipass
+          spec:
+            hosts:
+              - role: server
+                ssh:
+                  address: ${server_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${server_IP}
+                hostname: server
+              - role: agent
+                ssh:
+                  address: ${agent1_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${agent1_IP}
+                hostname: agent1
+              - role: agent
+                ssh:
+                  address: ${agent2_IP}
+                  user: ubuntu
+                  keyPath: ${SSH_KEY}
+                  port: 22
+                privateAddress: ${agent2_IP}
+                hostname: agent2
+            k3s:
+              version: "${K3S_VERSION}"
+          EOF
+          echo "--- k3sctl.yaml ---"
+          cat k3sctl.yaml
+
+      - name: Apply (install K3s cluster)
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          ./k3sctl --debug apply -c k3sctl.yaml 2>&1 | tee apply.log
+
+      - name: Verify cluster is running
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -i ${SSH_KEY}"
+
+          # Check config status
+          ./k3sctl config status -c k3sctl.yaml > status.out 2>&1
+          cat status.out
+          grep -q 'running' status.out || fail "config status does not report hosts as running"
+          pass "config status reports running"
+
+          # Check K3s version on server
+          ssh ${SSH_OPTS} "ubuntu@${server_IP}" \
+            "sudo /usr/local/bin/k3s --version" > k3s-version.out
+          cat k3s-version.out
+          grep -Fq "${K3S_VERSION}" k3s-version.out || \
+            fail "installed K3s version does not match ${K3S_VERSION}"
+          pass "installed version matches ${K3S_VERSION}"
+
+          # Check k3s.service is active on server
+          ssh ${SSH_OPTS} "ubuntu@${server_IP}" \
+            "systemctl is-active --quiet k3s" || fail "k3s.service is not active on server"
+          pass "k3s.service is active on server"
+
+          # Check k3s-agent.service on agents
+          for vm_ip in "${agent1_IP}" "${agent2_IP}"; do
+            ssh ${SSH_OPTS} "ubuntu@${vm_ip}" \
+              "systemctl is-active --quiet k3s-agent" || \
+              fail "k3s-agent.service is not active on ${vm_ip}"
+            pass "k3s-agent.service is active on ${vm_ip}"
+          done
+
+          # Verify all 3 nodes are Ready
+          ssh ${SSH_OPTS} "ubuntu@${server_IP}" \
+            "sudo /usr/local/bin/k3s kubectl get nodes" > nodes.out
+          cat nodes.out
+          node_count=$(grep -c ' Ready ' nodes.out || true)
+          [ "${node_count}" -eq 3 ] || fail "expected 3 Ready nodes, got ${node_count}"
+          pass "all 3 nodes are Ready"
+
+          # List pods
+          ssh ${SSH_OPTS} "ubuntu@${server_IP}" \
+            "sudo /usr/local/bin/k3s kubectl get pods -A" > pods.out
+          cat pods.out
+
+      - name: Kubeconfig command
+        if: steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          pass() { echo "PASS: $*"; }
+
+          ./k3sctl kubeconfig -c k3sctl.yaml --api-address "https://${server_IP}:6443" \
+            > kubeconfig.yaml 2> kubeconfig.log
+          cat kubeconfig.log
+          grep -q "server: https://${server_IP}:6443" kubeconfig.yaml || \
+            fail "kubeconfig has an unexpected API address"
+          pass "kubeconfig points at the requested API address"
+
+      - name: Capture failure diagnostics
+        if: failure() && steps.kvm.outputs.available == 'true'
+        run: |
+          set +e
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=5 -i ${SSH_KEY}"
+
+          collect_diag() {
+            local name="$1" ip="$2" service="$3"
+            echo "=== ${name} (${ip}) ==="
+            {
+              echo "--- ip addr ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "ip addr" 2>&1
+              echo "--- systemctl status ${service} ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "systemctl status ${service} --no-pager" 2>&1
+              echo "--- journalctl -u ${service} (last 100) ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "sudo journalctl -u ${service} --no-pager -n 100" 2>&1
+              echo "--- free -m ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "free -m" 2>&1
+              echo "--- df -h ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "df -h" 2>&1
+              echo "--- cloud-init status ---"
+              ssh ${SSH_OPTS} "ubuntu@${ip}" "cloud-init status --long" 2>&1
+            }
+          }
+
+          {
+            collect_diag "server" "${server_IP}" "k3s"
+            collect_diag "agent1" "${agent1_IP}" "k3s-agent"
+            collect_diag "agent2" "${agent2_IP}" "k3s-agent"
+          } > diagnostics.log 2>&1
+          cat diagnostics.log
+
+          # Multipass info
+          sudo multipass list > multipass-list.log 2>&1 || true
+          cat multipass-list.log
+
+      - name: Reset (remove K3s)
+        if: always() && steps.kvm.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -x ./k3sctl ] || [ ! -f k3sctl.yaml ]; then
+            echo "::warning::skipping reset: build or config missing"
+            exit 0
+          fi
+          ./k3sctl reset -c k3sctl.yaml --force 2>&1 | tee reset.log || true
+
+      - name: Destroy VMs
+        if: always() && steps.kvm.outputs.available == 'true'
+        run: |
+          set +e
+          for vm in server agent1 agent2; do
+            echo "Destroying VM: ${vm}"
+            sudo multipass stop "${vm}" 2>/dev/null || true
+            sudo multipass delete "${vm}" 2>/dev/null || true
+          done
+          sudo multipass purge 2>/dev/null || true
+          echo "All VMs destroyed."
+
+      - name: Upload logs
+        if: always() && steps.kvm.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: multipass-multinode-logs
+          path: |
+            apply.log
+            reset.log
+            status.out
+            nodes.out
+            pods.out
+            kubeconfig.log
+            kubeconfig.yaml
+            k3s-version.out
+            diagnostics.log
+            multipass-list.log
+            k3sctl.yaml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Skip notice
+        if: steps.kvm.outputs.available != 'true'
+        run: |
+          echo "::notice::This workflow was skipped because KVM is not available on this runner."
+          echo "To run this workflow, use a runner with KVM support (GitHub larger runners or self-hosted)."
+          echo ""
+          echo "For runners without KVM, use the nested-vm-multinode.yml workflow instead,"
+          echo "which uses raw QEMU with TCG software emulation (slower but works everywhere)."
