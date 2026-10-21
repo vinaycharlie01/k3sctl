@@ -33,6 +33,11 @@ type ExecRunner struct{}
 func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	isolateProcessGroup(cmd)
+	// Bound how long Wait blocks on output pipes that outlive the command. Without
+	// this, a grandchild that inherited the pipes keeps Wait blocked after the
+	// command itself has been killed.
+	cmd.WaitDelay = time.Second
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -45,6 +50,11 @@ func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (Re
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		Duration: time.Since(start),
+	}
+
+	if err != nil && ctx.Err() != nil {
+		result.ExitCode = -1
+		return result, fmt.Errorf("run %s: %w", strings.Join(result.Args, " "), ctx.Err())
 	}
 
 	if err != nil {

@@ -59,13 +59,20 @@ func VerifyNodes(output string, expected []string) error {
 	}
 
 	ready := make(map[string]struct{}, len(nodes))
+	notReady := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		if node.Ready {
 			ready[node.Name] = struct{}{}
+			continue
 		}
+		notReady = append(notReady, node.Name)
 	}
+	sort.Strings(notReady)
 
 	if len(ready) != len(expected) {
+		if len(notReady) > 0 {
+			return fmt.Errorf("expected %d Ready nodes, got %d: %v; not Ready: %v", len(expected), len(ready), sortedNames(ready), notReady)
+		}
 		return fmt.Errorf("expected %d Ready nodes, got %d: %v", len(expected), len(ready), sortedNames(ready))
 	}
 	for _, name := range expected {
