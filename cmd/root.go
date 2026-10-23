@@ -27,6 +27,7 @@ func NewK3sctl() *cli.App {
 			etcdSnapshotCommand(),
 			certificateCommand(),
 			tokenCommand(),
+			nodeCommand(),
 			configCommand(),
 			initCommand(),
 			completionCommand(),
