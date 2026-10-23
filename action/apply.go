@@ -39,6 +39,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.InstallBinaries{},
 		&phase.PrepareArm{},
 		&phase.ConfigureK3s{},
+		&phase.CertRotate{},
 		&phase.Restore{RestoreFrom: opts.RestoreFrom},
 		&phase.RunHooks{Action: "apply", Stage: "before"},
 		&phase.InitializeK3s{},

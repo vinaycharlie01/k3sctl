@@ -34,6 +34,15 @@ type SecretsEncryptConfig struct {
 	Enabled bool `yaml:"enabled,omitempty"`
 }
 
+type CertRotateConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+}
+
+type TokenConfig struct {
+	AgentToken  string `yaml:"agentToken,omitempty"`
+	ServerToken string `yaml:"serverToken,omitempty"`
+}
+
 type PreflightConfig struct {
 	Enabled      bool `yaml:"enabled" default:"true"`
 	CheckCgroups bool `yaml:"checkCgroups" default:"true"`
@@ -49,6 +58,8 @@ type K3s struct {
 	ExtraArgs      Flags                 `yaml:"extraArgs,omitempty"`
 	EtcdSnapshots  *EtcdSnapshotConfig   `yaml:"etcdSnapshots,omitempty"`
 	SecretsEncrypt *SecretsEncryptConfig  `yaml:"secretsEncrypt,omitempty"`
+	CertRotate     *CertRotateConfig      `yaml:"certRotate,omitempty"`
+	Token          *TokenConfig           `yaml:"token,omitempty"`
 	Preflight      *PreflightConfig       `yaml:"preflight,omitempty"`
 	VersionString  string                 `yaml:"-"`
 }
@@ -100,6 +111,7 @@ func (k *K3s) GenerateServerConfig(host *Host, clusterToken string, isInit bool,
 
 	k.applyEtcdSnapshotConfig(config)
 	k.applySecretsEncryptConfig(config)
+	k.applyTokenConfig(config)
 
 	for _, arg := range k.ExtraArgs {
 		parts := strings.SplitN(arg, "=", 2)
@@ -173,6 +185,18 @@ func (k *K3s) applySecretsEncryptConfig(config dig.Mapping) {
 		return
 	}
 	config["secrets-encryption"] = true
+}
+
+func (k *K3s) applyTokenConfig(config dig.Mapping) {
+	if k.Token == nil {
+		return
+	}
+	if k.Token.AgentToken != "" {
+		config["agent-token"] = k.Token.AgentToken
+	}
+	if k.Token.ServerToken != "" {
+		config["token"] = k.Token.ServerToken
+	}
 }
 
 func (k *K3s) GenerateAgentConfig(host *Host, serverAddr, clusterToken string) ([]byte, error) {
