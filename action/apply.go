@@ -28,6 +28,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.PrepareHosts{},
 		&phase.GatherFacts{},
 		&phase.ValidateHosts{},
+		&phase.Preflight{},
 		&phase.GatherK3sFacts{},
 		&phase.ValidateFacts{DisableDowngradeCheck: opts.DisableDowngradeCheck},
 		&phase.ValidateEtcdMembers{},
