@@ -68,7 +68,8 @@ func (p *NodeRemove) Run(ctx context.Context) error {
 		if err := p.host.CordonNode(p.leader); err != nil {
 			log.Warnf("%s: cordon failed: %v", p.host, err)
 		}
-		if err := p.host.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+		drainOpts := p.Config.Spec.Options.GetDrainOptions()
+		if err := p.host.DrainNode(p.leader, drainOpts); err != nil {
 			log.Warnf("%s: drain failed: %v", p.host, err)
 		}
 	}

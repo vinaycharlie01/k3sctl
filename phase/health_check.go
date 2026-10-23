@@ -102,7 +102,8 @@ func (p *HealthCheck) Run(ctx context.Context) error {
 }
 
 func (p *HealthCheck) checkAPIServer(h *cluster.Host) string {
-	cmd := h.Configurer.K3sCmdf("kubectl get --raw /healthz 2>/dev/null")
+	cmd := h.Configurer.KubectlCmdf(h, h.K3sDataDir(),
+		"get --raw /healthz 2>/dev/null")
 	output, err := h.Sudo().ExecOutput(cmd)
 	if err != nil {
 		return "unhealthy"
@@ -114,7 +115,8 @@ func (p *HealthCheck) checkAPIServer(h *cluster.Host) string {
 }
 
 func (p *HealthCheck) checkEtcd(h *cluster.Host) string {
-	cmd := h.Configurer.K3sCmdf("kubectl get --raw /healthz/etcd 2>/dev/null")
+	cmd := h.Configurer.KubectlCmdf(h, h.K3sDataDir(),
+		"get --raw /healthz/etcd 2>/dev/null")
 	output, err := h.Sudo().ExecOutput(cmd)
 	if err != nil {
 		etcdDir := fmt.Sprintf("%s/server/db/etcd", h.K3sDataDir())
@@ -132,7 +134,8 @@ func (p *HealthCheck) checkEtcd(h *cluster.Host) string {
 }
 
 func (p *HealthCheck) checkComponent(h *cluster.Host, name string) string {
-	cmd := h.Configurer.K3sCmdf("kubectl get --raw /healthz/%s 2>/dev/null", name)
+	cmd := h.Configurer.KubectlCmdf(h, h.K3sDataDir(),
+		"get --raw /healthz/%s 2>/dev/null", name)
 	output, err := h.Sudo().ExecOutput(cmd)
 	if err != nil {
 		return "n/a"
@@ -146,7 +149,7 @@ func (p *HealthCheck) checkComponent(h *cluster.Host, name string) string {
 func (p *HealthCheck) checkNodeReady(leader *cluster.Host, h *cluster.Host) string {
 	nodeName := h.KubernetesNodeName()
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"get node %s -o jsonpath={.status.conditions[?(@.type==\"Ready\")].status} 2>/dev/null",
+		`get node %s -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null`,
 		shellQuote(nodeName))
 	output, err := leader.Sudo().ExecOutput(cmd)
 	if err != nil {
@@ -164,7 +167,9 @@ func (p *HealthCheck) checkNodeReady(leader *cluster.Host, h *cluster.Host) stri
 }
 
 func (p *HealthCheck) checkPodCount(h *cluster.Host) string {
-	cmd := h.Configurer.K3sCmdf("kubectl get pods --all-namespaces --field-selector spec.nodeName=%s --no-headers 2>/dev/null | wc -l", shellQuote(h.KubernetesNodeName()))
+	cmd := h.Configurer.KubectlCmdf(h, h.K3sDataDir(),
+		"get pods --all-namespaces --field-selector spec.nodeName=%s --no-headers 2>/dev/null | wc -l",
+		shellQuote(h.KubernetesNodeName()))
 	output, err := h.Sudo().ExecOutput(cmd)
 	if err != nil {
 		return "-"
