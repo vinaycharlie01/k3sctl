@@ -140,7 +140,7 @@ func (p *Preflight) checkDisk(h *cluster.Host, minGB int) string {
 	output, err := h.Sudo().ExecOutput(cmd)
 	if err != nil {
 		// Directory may not exist yet; check parent
-		cmd = fmt.Sprintf("df -BG / 2>/dev/null | tail -1 | awk '{print $4}'")
+		cmd = "df -BG / 2>/dev/null | tail -1 | awk '{print $4}'"
 		output, err = h.Sudo().ExecOutput(cmd)
 		if err != nil {
 			return "unable to check disk space"
