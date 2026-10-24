@@ -11,16 +11,16 @@ import (
 )
 
 type HealthInfo struct {
-	Host           string
-	Role           string
-	K3sStatus      string
-	K3sVersion     string
-	APIServer      string
-	Etcd           string
-	Scheduler      string
-	ControllerMgr  string
-	NodeReady      string
-	PodCount       string
+	Host          string
+	Role          string
+	K3sStatus     string
+	K3sVersion    string
+	APIServer     string
+	Etcd          string
+	Scheduler     string
+	ControllerMgr string
+	NodeReady     string
+	PodCount      string
 }
 
 type HealthCheck struct {

@@ -9,25 +9,25 @@ import (
 )
 
 type EtcdSnapshotConfig struct {
-	Scheduled    bool              `yaml:"scheduled,omitempty"`
-	ScheduleCron string            `yaml:"scheduleCron,omitempty"`
-	Retention    int               `yaml:"retention,omitempty"`
-	Dir          string            `yaml:"dir,omitempty"`
-	Compress     bool              `yaml:"compress,omitempty"`
-	S3           *EtcdS3Config     `yaml:"s3,omitempty"`
+	Scheduled    bool          `yaml:"scheduled,omitempty"`
+	ScheduleCron string        `yaml:"scheduleCron,omitempty"`
+	Retention    int           `yaml:"retention,omitempty"`
+	Dir          string        `yaml:"dir,omitempty"`
+	Compress     bool          `yaml:"compress,omitempty"`
+	S3           *EtcdS3Config `yaml:"s3,omitempty"`
 }
 
 type EtcdS3Config struct {
-	Enabled         bool   `yaml:"enabled,omitempty"`
-	Endpoint        string `yaml:"endpoint,omitempty"`
-	EndpointCA      string `yaml:"endpointCa,omitempty"`
-	SkipSSLVerify   bool   `yaml:"skipSslVerify,omitempty"`
-	AccessKey       string `yaml:"accessKey,omitempty"`
-	SecretKey       string `yaml:"secretKey,omitempty"`
-	Bucket          string `yaml:"bucket,omitempty"`
-	Region          string `yaml:"region,omitempty"`
-	Folder          string `yaml:"folder,omitempty"`
-	Insecure        bool   `yaml:"insecure,omitempty"`
+	Enabled       bool   `yaml:"enabled,omitempty"`
+	Endpoint      string `yaml:"endpoint,omitempty"`
+	EndpointCA    string `yaml:"endpointCa,omitempty"`
+	SkipSSLVerify bool   `yaml:"skipSslVerify,omitempty"`
+	AccessKey     string `yaml:"accessKey,omitempty"`
+	SecretKey     string `yaml:"secretKey,omitempty"`
+	Bucket        string `yaml:"bucket,omitempty"`
+	Region        string `yaml:"region,omitempty"`
+	Folder        string `yaml:"folder,omitempty"`
+	Insecure      bool   `yaml:"insecure,omitempty"`
 }
 
 type SecretsEncryptConfig struct {
@@ -57,11 +57,11 @@ type K3s struct {
 	Config         dig.Mapping           `yaml:"config,omitempty"`
 	ExtraArgs      Flags                 `yaml:"extraArgs,omitempty"`
 	EtcdSnapshots  *EtcdSnapshotConfig   `yaml:"etcdSnapshots,omitempty"`
-	SecretsEncrypt *SecretsEncryptConfig  `yaml:"secretsEncrypt,omitempty"`
-	CertRotate     *CertRotateConfig      `yaml:"certRotate,omitempty"`
-	Token          *TokenConfig           `yaml:"token,omitempty"`
-	Preflight      *PreflightConfig       `yaml:"preflight,omitempty"`
-	VersionString  string                 `yaml:"-"`
+	SecretsEncrypt *SecretsEncryptConfig `yaml:"secretsEncrypt,omitempty"`
+	CertRotate     *CertRotateConfig     `yaml:"certRotate,omitempty"`
+	Token          *TokenConfig          `yaml:"token,omitempty"`
+	Preflight      *PreflightConfig      `yaml:"preflight,omitempty"`
+	VersionString  string                `yaml:"-"`
 }
 
 func (k *K3s) SetDefaults() {
