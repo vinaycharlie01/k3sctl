@@ -36,6 +36,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.ResolveBinaryProviders{},
 		&phase.StageBinaries{},
 		&phase.UploadFiles{},
+		&phase.UploadAirgapBundle{},
 		&phase.InstallBinaries{},
 		&phase.PrepareArm{},
 		&phase.ConfigureK3s{},

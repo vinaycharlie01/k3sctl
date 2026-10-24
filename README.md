@@ -20,6 +20,7 @@ back up and reset the cluster over SSH.
 - Rolling upgrades with drain/cordon for both servers and agents
 - Configuration validation (`config validate`)
 - Configuration diff (`config diff`) — preview what `apply` would change
+- Air-gap install — upload pre-downloaded image bundles for offline clusters
 - Dry-run mode (`--dry-run`)
 
 Linux hosts only.
@@ -147,6 +148,10 @@ spec:
       checkDisk: true
       minDiskGB: 10
 
+    airgap:                            # air-gap (offline) installation
+      enabled: true
+      imageBundle: /path/to/k3s-airgap-images-amd64.tar.zst
+
   options:
     drain:
       enabled: true
@@ -186,6 +191,7 @@ spec:
 | `certRotate` | Rotate TLS certificates on every `apply` |
 | `token` | Set explicit server and agent join tokens |
 | `preflight` | Pre-flight checks run before apply |
+| `airgap` | Air-gap (offline) installation settings |
 
 #### `etcdSnapshots`
 
@@ -236,6 +242,13 @@ spec:
 | `checkPorts` | Verify required ports are not in use (6443, 10250, 2379, 2380 for servers; 10250 for agents) |
 | `checkDisk` | Verify minimum disk space is available |
 | `minDiskGB` | Minimum disk space in GB (default: 5) |
+
+#### `airgap`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable air-gap mode (skip downloading K3s images from the internet) |
+| `imageBundle` | Local path to a K3s air-gap image bundle (e.g. `k3s-airgap-images-amd64.tar.zst`); uploaded to `<dataDir>/agent/images/` on every host |
 
 ### Additional manifests
 
@@ -301,6 +314,7 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - Token management (`token list`)
 - Node removal with drain (`node remove`)
 - Dry-run mode, kubeconfig export, shell completions
+- Air-gap install — upload image bundles for offline clusters
 
 ### Next
 
@@ -308,7 +322,6 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - **Cluster import**: adopt an existing K3s cluster into k3sctl management
 - **Registry mirror config**: first-class support for private registry mirrors
 - **Plugin system**: hooks for custom pre/post-apply logic
-- **Air-gap install**: bundle K3s binary + images for offline installation
 
 ## Development
 

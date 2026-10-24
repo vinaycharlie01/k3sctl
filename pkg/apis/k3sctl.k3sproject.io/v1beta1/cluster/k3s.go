@@ -2,11 +2,17 @@ package cluster
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/k0sproject/dig"
 	"gopkg.in/yaml.v2"
 )
+
+func fileExistsLocal(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 type EtcdSnapshotConfig struct {
 	Scheduled    bool          `yaml:"scheduled,omitempty"`
@@ -52,6 +58,11 @@ type PreflightConfig struct {
 	MinDiskGB    int  `yaml:"minDiskGB,omitempty"`
 }
 
+type AirgapConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	ImageBundle string `yaml:"imageBundle,omitempty"`
+}
+
 type K3s struct {
 	Version        string                `yaml:"version,omitempty"`
 	Config         dig.Mapping           `yaml:"config,omitempty"`
@@ -61,6 +72,7 @@ type K3s struct {
 	CertRotate     *CertRotateConfig     `yaml:"certRotate,omitempty"`
 	Token          *TokenConfig          `yaml:"token,omitempty"`
 	Preflight      *PreflightConfig      `yaml:"preflight,omitempty"`
+	Airgap         *AirgapConfig         `yaml:"airgap,omitempty"`
 	VersionString  string                `yaml:"-"`
 }
 
@@ -78,6 +90,13 @@ func (k *K3s) Validate() error {
 		if es.S3 != nil && es.S3.Enabled {
 			if es.S3.Bucket == "" {
 				return fmt.Errorf("etcdSnapshots.s3.bucket is required when S3 is enabled")
+			}
+		}
+	}
+	if ag := k.Airgap; ag != nil && ag.Enabled {
+		if ag.ImageBundle != "" {
+			if !fileExistsLocal(ag.ImageBundle) {
+				return fmt.Errorf("airgap.imageBundle: file not found: %s", ag.ImageBundle)
 			}
 		}
 	}
