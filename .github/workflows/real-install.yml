@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - main
+      - ccr-385bb1e9-ed0ul0
       - feat/cli-smoke-and-parity
     paths:
       - ".github/workflows/real-install.yml"

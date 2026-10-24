@@ -24,6 +24,7 @@ on:
   push:
     branches:
       - main
+      - ccr-385bb1e9-ed0ul0
     paths:
       - ".github/workflows/lxd-multinode.yml"
       - "integration/**"
