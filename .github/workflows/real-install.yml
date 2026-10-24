@@ -3,11 +3,15 @@ name: Real K3s Install
 # End-to-end test: installs a real single-node K3s cluster on the runner
 # itself (via `localhost: true`), verifies it, and tears it down with `reset`.
 #
-# This cannot run on macOS (no K3s) and is too slow for every push, so it is
-# path-filtered. Note that `workflow_dispatch` and `schedule` are only evaluated
-# when the workflow exists on the default branch; the `push` trigger is what
-# makes it runnable on a feature branch. The offline CLI surface is covered by
-# cli-smoke.yml.
+# The test is implemented as a Go integration test in integration/localhost/,
+# gated by K3SCTL_LOCALHOST_INTEGRATION=1.
+#
+# Local reproduction:
+#   task build
+#   K3SCTL_LOCALHOST_INTEGRATION=1 \
+#   K3SCTL_BINARY="$PWD/k3sctl" \
+#     go test -tags=integration -timeout 30m -v ./integration/localhost/ \
+#     -run TestLocalhostSingleNode
 
 on:
   push:
@@ -37,8 +41,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # `inputs` is empty for scheduled runs, so fall back to the pinned default.
   K3S_VERSION: ${{ inputs.k3s_version || 'v1.37.1+k3s1' }}
+  K3SCTL_LOCALHOST_INTEGRATION: "1"
+  K3SCTL_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   install:
@@ -51,7 +56,6 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # go.mod pins the language version only; build with a current toolchain.
           go-version: stable
 
       - uses: arduino/setup-task@v2
@@ -59,168 +63,33 @@ jobs:
           version: 3.54.0
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build CLI
+      - name: Build k3sctl
         run: task build
 
-      - name: Preflight (systemd + passwordless sudo)
-        shell: bash
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+
+      - name: Unit tests
         run: |
           set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-          pass() { echo "PASS: $*"; }
+          mkdir -p test-results
+          "$(go env GOPATH)/bin/gotestsum" \
+            --junitfile test-results/unit.xml \
+            --format testname \
+            -- -count=1 ./integration/localhost/...
 
-          [ -x ./k3sctl ] || fail "k3sctl binary was not produced"
-
-          pid1="$(ps -p 1 -o comm=)"
-          [ "${pid1}" = "systemd" ] || fail "PID 1 is '${pid1}', not systemd; K3s needs systemd"
-          pass "systemd is PID 1"
-
-          sudo -n true || fail "passwordless sudo is unavailable; k3sctl elevates every privileged command"
-          [ "$(sudo -n id -u)" = "0" ] || fail "sudo does not yield uid 0"
-          pass "passwordless sudo works"
-
-          # A cancelled run can leave the k3sctl host lock behind.
-          sudo -n rm -f /var/lock/k3sctl.lock
-
-      - name: Write cluster config
-        shell: bash
+      - name: Single-node localhost integration test
+        env:
+          K3SCTL_BINARY: ${{ github.workspace }}/k3sctl
+          K3SCTL_ARTIFACT_DIR: ${{ github.workspace }}/integration-artifacts/${{ env.K3SCTL_RUN_ID }}
         run: |
           set -euo pipefail
-          cat > k3sctl.yaml <<EOF
-          apiVersion: k3sctl.k3sproject.io/v1beta1
-          kind: Cluster
-          metadata:
-            name: ci-real-install
-          spec:
-            hosts:
-              - localhost: true
-                role: server
-            k3s:
-              version: "${K3S_VERSION}"
-          EOF
-          echo "--- k3sctl.yaml ---"
-          cat k3sctl.yaml
-
-      - name: Apply (install K3s)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./k3sctl --debug apply -c k3sctl.yaml 2>&1 | tee apply.log
-
-      - name: Verify cluster is running
-        shell: bash
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-          pass() { echo "PASS: $*"; }
-
-          ./k3sctl config status -c k3sctl.yaml > status.out 2>&1
-          cat status.out
-          grep -q 'running' status.out || fail "config status does not report the host as running"
-          pass "config status reports running"
-
-          sudo -n /usr/local/bin/k3s --version > k3s-version.out
-          cat k3s-version.out
-          grep -Fq "${K3S_VERSION}" k3s-version.out || fail "installed K3s version does not match ${K3S_VERSION}"
-          pass "installed version matches ${K3S_VERSION}"
-
-          if systemctl is-active --quiet k3s; then
-            pass "k3s.service is active"
-          else
-            fail "k3s.service is not active"
-          fi
-
-          sudo -n /usr/local/bin/k3s kubectl get nodes > nodes.out
-          cat nodes.out
-          grep -q ' Ready ' nodes.out || fail "node is not Ready"
-          pass "node is Ready"
-
-          sudo -n /usr/local/bin/k3s kubectl get pods -A > pods.out
-          cat pods.out
-
-      - name: Kubeconfig command
-        shell: bash
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-          pass() { echo "PASS: $*"; }
-
-          ./k3sctl kubeconfig -c k3sctl.yaml --api-address https://127.0.0.1:6443 \
-            > kubeconfig.yaml 2> kubeconfig.log
-          cat kubeconfig.log
-          grep -q 'server: https://127.0.0.1:6443' kubeconfig.yaml || fail "kubeconfig has an unexpected API address"
-          pass "kubeconfig points at the requested API address"
-
-          # Prove the generated kubeconfig actually works.
-          sudo -n /usr/local/bin/k3s kubectl --kubeconfig=kubeconfig.yaml get nodes > kubeconfig-nodes.out
-          cat kubeconfig-nodes.out
-          grep -q ' Ready ' kubeconfig-nodes.out || fail "kubeconfig could not reach the cluster"
-          pass "generated kubeconfig works"
-
-      - name: Capture failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "=== systemctl status k3s ==="
-            systemctl status k3s --no-pager
-            echo "=== journalctl -u k3s (last 200) ==="
-            sudo -n journalctl -u k3s --no-pager -n 200
-            echo "=== /etc/rancher/k3s ==="
-            sudo -n ls -la /etc/rancher/k3s
-            echo "=== /var/lib/rancher/k3s ==="
-            sudo -n ls -la /var/lib/rancher/k3s
-            echo "=== /var/log ==="
-            sudo -n ls -la /var/log
-          } > diagnostics.log 2>&1
-          cat diagnostics.log
-
-      - name: Reset (remove K3s)
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -x ./k3sctl ] || [ ! -f k3sctl.yaml ]; then
-            echo "::warning::skipping reset: build or config missing"
-            exit 0
-          fi
-          # A failed apply may have left the host lock behind, and reset acquires it too.
-          sudo -n rm -f /var/lock/k3sctl.lock
-          ./k3sctl reset -c k3sctl.yaml --force 2>&1 | tee reset.log
-
-      - name: Verify teardown
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-          pass() { echo "PASS: $*"; }
-
-          if [ ! -x ./k3sctl ] || [ ! -f k3sctl.yaml ]; then
-            echo "::warning::skipping teardown checks: build or config missing"
-            exit 0
-          fi
-
-          [ ! -e /usr/local/bin/k3s ] || fail "k3s binary still present"
-          pass "k3s binary removed"
-
-          [ ! -e /var/lib/rancher/k3s ] || fail "k3s data dir still present"
-          pass "k3s data dir removed"
-
-          [ ! -e /etc/rancher/k3s/config.yaml ] || fail "k3s config still present"
-          pass "k3s config removed"
-
-          [ ! -e /etc/systemd/system/k3s.service ] || fail "k3s unit still present"
-          if systemctl is-active --quiet k3s; then
-            fail "k3s.service is still active"
-          fi
-          pass "k3s service is gone"
-
-          ./k3sctl config status -c k3sctl.yaml > after.out 2>&1
-          cat after.out
-          grep -q 'not installed' after.out || fail "config status does not report the host as not installed"
-          pass "config status reports not installed"
+          mkdir -p test-results
+          "$(go env GOPATH)/bin/gotestsum" \
+            --junitfile test-results/integration.xml \
+            --format testname \
+            -- -tags=integration -timeout 30m -v ./integration/localhost/ \
+            -run TestLocalhostSingleNode
 
       - name: Upload logs
         if: always()
@@ -228,15 +97,23 @@ jobs:
         with:
           name: real-install-logs
           path: |
-            apply.log
-            reset.log
-            status.out
-            after.out
-            nodes.out
-            pods.out
-            kubeconfig.log
-            kubeconfig-nodes.out
-            k3s-version.out
-            diagnostics.log
+            test-results/
+            integration-artifacts/
           if-no-files-found: ignore
           retention-days: 7
+
+      # Fallback cleanup in case the Go test is killed before its deferred
+      # cleanup runs.
+      - name: Fallback reset
+        if: always()
+        run: |
+          set +e
+          if [ -x ./k3sctl ]; then
+            sudo -n rm -f /var/lock/k3sctl.lock
+            artifact_dir="integration-artifacts/${{ env.K3SCTL_RUN_ID }}"
+            config="${artifact_dir}/k3sctl.yaml"
+            if [ -f "${config}" ]; then
+              echo "Running fallback reset..."
+              ./k3sctl reset -c "${config}" --force 2>&1 || true
+            fi
+          fi
