@@ -15,6 +15,11 @@ func configStatusCommand() *cli.Command {
 		Flags: []cli.Flag{
 			configFlag(),
 			concurrencyFlag(),
+			&cli.BoolFlag{
+				Name:    "deep",
+				Aliases: []string{"d"},
+				Usage:   "Run deep health checks (API server, etcd, scheduler, controller-manager, node readiness)",
+			},
 		},
 		Action: func(ctx *cli.Context) error {
 			cfg, err := loadConfig(ctx.String("config"))
@@ -22,8 +27,9 @@ func configStatusCommand() *cli.Command {
 				return err
 			}
 
-			m := action.ConfigStatus(action.ConfigStatusOptions{
+			m, _ := action.ConfigStatus(action.ConfigStatusOptions{
 				Writer: os.Stdout,
+				Deep:   ctx.Bool("deep"),
 			})
 
 			m.Concurrency = ctx.Int("concurrency")

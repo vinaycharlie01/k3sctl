@@ -111,6 +111,39 @@ spec:
     extraArgs:
       - --kubelet-arg=eviction-hard=memory.available<100Mi
 
+    etcdSnapshots:                     # automated etcd snapshot scheduling
+      scheduled: true
+      scheduleCron: "0 */12 * * *"
+      retention: 5
+      dir: /var/lib/rancher/k3s/server/db/snapshots
+      compress: true
+      s3:
+        enabled: true
+        endpoint: s3.amazonaws.com
+        bucket: my-k3s-backups
+        region: us-east-1
+        folder: snapshots
+        accessKey: AKIAIOSFODNN7EXAMPLE
+        secretKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+    secretsEncrypt:                    # enable secrets encryption at rest
+      enabled: true
+
+    certRotate:                        # rotate K3s TLS certificates on apply
+      enabled: true
+
+    token:                             # explicit cluster tokens
+      serverToken: my-server-secret
+      agentToken: my-agent-secret
+
+    preflight:                         # pre-flight checks before apply
+      enabled: true
+      checkCgroups: true
+      checkModules: true
+      checkPorts: true
+      checkDisk: true
+      minDiskGB: 10
+
   options:
     drain:
       enabled: true
@@ -137,6 +170,69 @@ spec:
 | `k3sBinaryPath` | Use an existing binary on the host |
 | `noFlannel` | Disable the flannel CNI |
 | `os` | Override OS detection |
+
+### K3s options
+
+| Key | Description |
+|---|---|
+| `version` | K3s version to install (e.g. `v1.30.0+k3s1`) |
+| `config` | Key-value map merged into each host's K3s `config.yaml` |
+| `extraArgs` | Extra flags appended to the `k3s server`/`k3s agent` command |
+| `etcdSnapshots` | Automated etcd snapshot configuration (see below) |
+| `secretsEncrypt` | Enable K3s secrets encryption at rest |
+| `certRotate` | Rotate TLS certificates on every `apply` |
+| `token` | Set explicit server and agent join tokens |
+| `preflight` | Pre-flight checks run before apply |
+
+#### `etcdSnapshots`
+
+| Key | Description |
+|---|---|
+| `scheduled` | Enable scheduled snapshots |
+| `scheduleCron` | Cron expression for snapshot schedule |
+| `retention` | Number of snapshots to retain |
+| `dir` | Local directory for snapshots |
+| `compress` | Compress snapshots |
+| `s3.enabled` | Store snapshots in S3 |
+| `s3.endpoint` | S3 endpoint |
+| `s3.endpointCa` | Path to CA cert for S3 endpoint |
+| `s3.skipSslVerify` | Skip TLS verification for S3 |
+| `s3.accessKey` | S3 access key |
+| `s3.secretKey` | S3 secret key |
+| `s3.bucket` | S3 bucket name (required when S3 enabled) |
+| `s3.region` | S3 region |
+| `s3.folder` | Folder within the bucket |
+| `s3.insecure` | Use HTTP instead of HTTPS |
+
+#### `secretsEncrypt`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable K3s secrets encryption at rest (`--secrets-encryption`) |
+
+#### `certRotate`
+
+| Key | Description |
+|---|---|
+| `enabled` | Run `k3s certificate rotate --force` on each server during `apply` and restart K3s |
+
+#### `token`
+
+| Key | Description |
+|---|---|
+| `serverToken` | Token used for server-to-server communication (`--token`) |
+| `agentToken` | Token used for agent-to-server communication (`--agent-token`) |
+
+#### `preflight`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable pre-flight checks |
+| `checkCgroups` | Verify cgroup v1/v2 controllers are available |
+| `checkModules` | Verify required kernel modules are loaded (`br_netfilter`, `overlay`, `ip_tables`, `nf_conntrack`) |
+| `checkPorts` | Verify required ports are not in use (6443, 10250, 2379, 2380 for servers; 10250 for agents) |
+| `checkDisk` | Verify minimum disk space is available |
+| `minDiskGB` | Minimum disk space in GB (default: 5) |
 
 ### Additional manifests
 
@@ -167,6 +263,12 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl backup` | Create an etcd snapshot |
 | `k3sctl config edit` | Edit the cluster configuration |
 | `k3sctl config status` | Show the current cluster status |
+| `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
+| `k3sctl etcd-snapshot list` | List etcd snapshots on servers |
+| `k3sctl etcd-snapshot delete` | Delete an etcd snapshot by name |
+| `k3sctl certificate check` | Check TLS certificate expiry dates |
+| `k3sctl token list` | List cluster join tokens |
+| `k3sctl node remove` | Remove a node from the cluster |
 | `k3sctl init` | Print a configuration template |
 | `k3sctl version` | Print version information |
 | `k3sctl completion` | Print shell completion script |
@@ -175,6 +277,7 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 `apply` additionally accepts `--dry-run`, `--no-wait`, `--no-drain`,
 `--restore-from`, `--kubeconfig-out`, `--concurrency`,
 `--concurrent-uploads` and `--disable-downgrade-check`.
+`node remove` accepts `--no-drain` and `--force` (to remove the leader).
 
 ## Development
 

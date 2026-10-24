@@ -160,8 +160,8 @@ func (h *Host) Connect(ctx context.Context) error {
 	// rig v2.0.0-alpha.2 declares Client.OSReleaseService but never assigns it
 	// in Client.setup(), so the promoted Client.OS() dereferences a nil service.
 	// Wire it up with the same provider rig's defaults would use.
-	if h.Client.OSReleaseService == nil {
-		h.Client.OSReleaseService = rigos.NewOSReleaseService(rigos.DefaultProvider(), h.Client.Runner)
+	if h.OSReleaseService == nil {
+		h.OSReleaseService = rigos.NewOSReleaseService(rigos.DefaultProvider(), h.Runner)
 	}
 	return nil
 }

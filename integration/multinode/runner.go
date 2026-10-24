@@ -350,7 +350,7 @@ func (r *Runner) verifyAPIServer(ctx context.Context, server *environment.Node) 
 	defer cancel()
 
 	if err := r.options.APICheck(apiCtx, server.Address); err != nil {
-		return fmt.Errorf("Kubernetes API on %s: %w", server.Name, err)
+		return fmt.Errorf("kubernetes API on %s: %w", server.Name, err)
 	}
 	return nil
 }

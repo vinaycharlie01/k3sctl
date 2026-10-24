@@ -24,6 +24,7 @@ on:
   push:
     branches:
       - main
+      - ccr-385bb1e9-ed0ul0
     paths:
       - ".github/workflows/lxd-multinode.yml"
       - "integration/**"
@@ -87,7 +88,7 @@ jobs:
         run: task build
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Unit tests
         run: |
