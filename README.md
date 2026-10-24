@@ -19,6 +19,7 @@ back up and reset the cluster over SSH.
 - Idempotent `apply`: safe to re-run, only changes what drifted
 - Rolling upgrades with drain/cordon for both servers and agents
 - Configuration validation (`config validate`)
+- Configuration diff (`config diff`) — preview what `apply` would change
 - Dry-run mode (`--dry-run`)
 
 Linux hosts only.
@@ -265,6 +266,7 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl backup` | Create an etcd snapshot |
 | `k3sctl restore` | Restore cluster from an etcd snapshot |
 | `k3sctl config edit` | Edit the cluster configuration |
+| `k3sctl config diff` | Show differences between desired config and actual cluster state |
 | `k3sctl config validate` | Validate a cluster configuration file |
 | `k3sctl config status` | Show the current cluster status |
 | `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
@@ -292,6 +294,7 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - Rolling upgrades with drain/cordon for both servers and agents
 - etcd backup (`backup`) and restore (`restore`) with confirmation prompt
 - Configuration validation (`config validate`)
+- Configuration diff (`config diff`)
 - Deep cluster health checks (`config status --deep`)
 - etcd snapshot management (`etcd-snapshot list`, `etcd-snapshot delete`)
 - Certificate expiry checking (`certificate check`)
@@ -302,7 +305,6 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 ### Next
 
 - **Multi-server HA**: full support for multi-server etcd clusters (join additional servers, promote/demote)
-- **Config diff**: show what `apply` would change before running (`config diff`)
 - **Cluster import**: adopt an existing K3s cluster into k3sctl management
 - **Registry mirror config**: first-class support for private registry mirrors
 - **Plugin system**: hooks for custom pre/post-apply logic
