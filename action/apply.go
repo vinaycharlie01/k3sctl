@@ -46,7 +46,7 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.PropagateToken{},
 		&phase.InstallServers{},
 		&phase.InstallAgents{},
-		&phase.UpgradeServers{},
+		&phase.UpgradeServers{NoDrain: opts.NoDrain},
 		&phase.UpgradeAgents{NoDrain: opts.NoDrain},
 		&phase.Reinstall{NoDrain: opts.NoDrain},
 		&phase.ResetAgents{NoDrain: opts.NoDrain},

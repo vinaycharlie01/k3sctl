@@ -14,9 +14,11 @@ back up and reset the cluster over SSH.
 - Supports labels, taints, extra install flags, environment variables and
   arbitrary file uploads
 - Applies additional Kubernetes manifests bundled in the configuration file
-- etcd snapshots (`backup`), etcd member validation and restore
+- etcd snapshots (`backup`), etcd member validation and restore (`restore`)
 - Fetches a ready-to-use admin kubeconfig
 - Idempotent `apply`: safe to re-run, only changes what drifted
+- Rolling upgrades with drain/cordon for both servers and agents
+- Configuration validation (`config validate`)
 - Dry-run mode (`--dry-run`)
 
 Linux hosts only.
@@ -261,7 +263,9 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl reset` | Remove K3s from the hosts |
 | `k3sctl kubeconfig` | Print the admin kubeconfig |
 | `k3sctl backup` | Create an etcd snapshot |
+| `k3sctl restore` | Restore cluster from an etcd snapshot |
 | `k3sctl config edit` | Edit the cluster configuration |
+| `k3sctl config validate` | Validate a cluster configuration file |
 | `k3sctl config status` | Show the current cluster status |
 | `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
 | `k3sctl etcd-snapshot list` | List etcd snapshots on servers |
@@ -278,6 +282,31 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 `--restore-from`, `--kubeconfig-out`, `--concurrency`,
 `--concurrent-uploads` and `--disable-downgrade-check`.
 `node remove` accepts `--no-drain` and `--force` (to remove the leader).
+`restore` accepts `--from` (required snapshot path) and `--force` (skip confirmation).
+
+## Roadmap
+
+### Done
+
+- Declarative cluster apply (install, upgrade, idempotent re-run)
+- Rolling upgrades with drain/cordon for both servers and agents
+- etcd backup (`backup`) and restore (`restore`) with confirmation prompt
+- Configuration validation (`config validate`)
+- Deep cluster health checks (`config status --deep`)
+- etcd snapshot management (`etcd-snapshot list`, `etcd-snapshot delete`)
+- Certificate expiry checking (`certificate check`)
+- Token management (`token list`)
+- Node removal with drain (`node remove`)
+- Dry-run mode, kubeconfig export, shell completions
+
+### Next
+
+- **Multi-server HA**: full support for multi-server etcd clusters (join additional servers, promote/demote)
+- **Config diff**: show what `apply` would change before running (`config diff`)
+- **Cluster import**: adopt an existing K3s cluster into k3sctl management
+- **Registry mirror config**: first-class support for private registry mirrors
+- **Plugin system**: hooks for custom pre/post-apply logic
+- **Air-gap install**: bundle K3s binary + images for offline installation
 
 ## Development
 

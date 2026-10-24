@@ -9,6 +9,7 @@ func configCommand() *cli.Command {
 		Subcommands: []*cli.Command{
 			configEditCommand(),
 			configStatusCommand(),
+			configValidateCommand(),
 		},
 	}
 }
