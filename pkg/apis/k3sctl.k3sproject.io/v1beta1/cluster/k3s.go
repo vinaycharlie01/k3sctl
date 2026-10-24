@@ -59,7 +59,7 @@ type PreflightConfig struct {
 }
 
 type AirgapConfig struct {
-	Enabled    bool   `yaml:"enabled"`
+	Enabled     bool   `yaml:"enabled"`
 	ImageBundle string `yaml:"imageBundle,omitempty"`
 }
 

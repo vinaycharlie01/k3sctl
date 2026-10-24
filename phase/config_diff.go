@@ -13,10 +13,10 @@ import (
 // DiffEntry represents a single difference between the desired configuration
 // and the actual cluster state.
 type DiffEntry struct {
-	Host     string
-	Field    string
-	Current  string
-	Desired  string
+	Host    string
+	Field   string
+	Current string
+	Desired string
 }
 
 // ConfigDiff compares the desired configuration against the gathered facts and
