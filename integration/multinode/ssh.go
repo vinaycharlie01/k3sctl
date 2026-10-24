@@ -107,7 +107,7 @@ func (s *SSHRunner) Run(ctx context.Context, address, command string) (Result, e
 	case <-ctx.Done():
 		_ = session.Signal(ssh.SIGKILL)
 		_ = session.Close()
-		<-done
+		<-done //nolint:errcheck // draining the goroutine after kill; error is discarded intentionally
 
 		result.Duration = time.Since(start)
 		result.Stdout = stdout.String()
