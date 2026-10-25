@@ -308,6 +308,17 @@ func (r *Runner) verify(ctx context.Context, nodes []environment.Node, configPat
 	if err := r.verifyReadyNodes(ctx, nodes, server); err != nil {
 		return err
 	}
+
+	servers := findAllRole(nodes, environment.RoleServer)
+	if len(servers) > 1 {
+		if err := r.verifyEtcdCluster(ctx, server, len(servers)); err != nil {
+			return err
+		}
+		if err := r.verifyAllServerAPIs(ctx, servers); err != nil {
+			return err
+		}
+	}
+
 	return r.verifyKubeconfig(ctx, configPath, server)
 }
 
@@ -382,6 +393,31 @@ func (r *Runner) verifyKubeconfig(ctx context.Context, configPath string, server
 		return fmt.Errorf("k3sctl kubeconfig: %w", err)
 	}
 	return VerifyKubeconfig(result.Stdout, apiAddress)
+}
+
+func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node, expectedMembers int) error {
+	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
+
+	result, err := r.remote(ctx, leader.Address,
+		"sudo /usr/local/bin/k3s kubectl exec -n kube-system $(sudo /usr/local/bin/k3s kubectl get pod -n kube-system -l component=etcd --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- etcdctl member list --write-out=table 2>/dev/null || sudo ETCDCTL_API=3 /usr/local/bin/k3s etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert=/var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key=/var/lib/rancher/k3s/server/tls/etcd/server-client.key member list",
+		r.options.VerifyTimeout)
+	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
+	if err != nil {
+		return fmt.Errorf("etcd member list on %s: %w", leader.Name, err)
+	}
+
+	return VerifyEtcdMembers(result.Stdout, expectedMembers)
+}
+
+func (r *Runner) verifyAllServerAPIs(ctx context.Context, servers []*environment.Node) error {
+	log.Infof("verifying API server on all %d servers", len(servers))
+
+	for _, server := range servers {
+		if err := r.verifyAPIServer(ctx, server); err != nil {
+			return fmt.Errorf("API server on %s: %w", server.Name, err)
+		}
+	}
+	return nil
 }
 
 func (r *Runner) cleanup(ctx context.Context, configPath string) error {
@@ -468,4 +504,14 @@ func findRole(nodes []environment.Node, role environment.Role) *environment.Node
 		}
 	}
 	return nil
+}
+
+func findAllRole(nodes []environment.Node, role environment.Role) []*environment.Node {
+	var result []*environment.Node
+	for i := range nodes {
+		if nodes[i].Role == role {
+			result = append(result, &nodes[i])
+		}
+	}
+	return result
 }

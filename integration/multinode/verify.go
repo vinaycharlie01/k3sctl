@@ -128,6 +128,37 @@ func VerifyKubeconfig(output, apiAddress string) error {
 	return nil
 }
 
+// VerifyEtcdMembers checks that the etcd member list output contains exactly
+// the expected number of members. It works with both table and simple output
+// formats from etcdctl.
+func VerifyEtcdMembers(output string, expected int) error {
+	if strings.TrimSpace(output) == "" {
+		return fmt.Errorf("etcd member list output is empty")
+	}
+
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Skip table borders and headers
+		if strings.HasPrefix(trimmed, "+") || strings.HasPrefix(trimmed, "|") && strings.Contains(trimmed, "ID") {
+			continue
+		}
+		// Count lines that look like member entries: they contain a peer URL
+		// (https://...:2380) or a comma-separated ID field.
+		if strings.Contains(trimmed, ":2380") || strings.Contains(trimmed, "started") {
+			count++
+		}
+	}
+
+	if count != expected {
+		return fmt.Errorf("etcd cluster has %d members, want %d; output:\n%s", count, expected, output)
+	}
+	return nil
+}
+
 func sortedNames(names map[string]struct{}) []string {
 	result := make([]string, 0, len(names))
 	for name := range names {
