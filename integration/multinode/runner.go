@@ -399,7 +399,12 @@ func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node
 	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
 
 	result, err := r.remote(ctx, leader.Address,
-		"sudo /usr/local/bin/k3s kubectl exec -n kube-system $(sudo /usr/local/bin/k3s kubectl get pod -n kube-system -l component=etcd --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- etcdctl member list --write-out=table 2>/dev/null || sudo ETCDCTL_API=3 /usr/local/bin/k3s etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert=/var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key=/var/lib/rancher/k3s/server/tls/etcd/server-client.key member list",
+		"sudo ETCDCTL_API=3 /usr/local/bin/k3s etcdctl "+
+			"--endpoints https://127.0.0.1:2379 "+
+			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
+			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
+			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
+			"member list",
 		r.options.VerifyTimeout)
 	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
 	if err != nil {
