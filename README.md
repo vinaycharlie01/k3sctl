@@ -14,9 +14,13 @@ back up and reset the cluster over SSH.
 - Supports labels, taints, extra install flags, environment variables and
   arbitrary file uploads
 - Applies additional Kubernetes manifests bundled in the configuration file
-- etcd snapshots (`backup`), etcd member validation and restore
+- etcd snapshots (`backup`), etcd member validation and restore (`restore`)
 - Fetches a ready-to-use admin kubeconfig
 - Idempotent `apply`: safe to re-run, only changes what drifted
+- Rolling upgrades with drain/cordon for both servers and agents
+- Configuration validation (`config validate`)
+- Configuration diff (`config diff`) — preview what `apply` would change
+- Air-gap install — upload pre-downloaded image bundles for offline clusters
 - Dry-run mode (`--dry-run`)
 
 Linux hosts only.
@@ -144,6 +148,10 @@ spec:
       checkDisk: true
       minDiskGB: 10
 
+    airgap:                            # air-gap (offline) installation
+      enabled: true
+      imageBundle: /path/to/k3s-airgap-images-amd64.tar.zst
+
   options:
     drain:
       enabled: true
@@ -183,6 +191,7 @@ spec:
 | `certRotate` | Rotate TLS certificates on every `apply` |
 | `token` | Set explicit server and agent join tokens |
 | `preflight` | Pre-flight checks run before apply |
+| `airgap` | Air-gap (offline) installation settings |
 
 #### `etcdSnapshots`
 
@@ -234,6 +243,13 @@ spec:
 | `checkDisk` | Verify minimum disk space is available |
 | `minDiskGB` | Minimum disk space in GB (default: 5) |
 
+#### `airgap`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable air-gap mode (skip downloading K3s images from the internet) |
+| `imageBundle` | Local path to a K3s air-gap image bundle (e.g. `k3s-airgap-images-amd64.tar.zst`); uploaded to `<dataDir>/agent/images/` on every host |
+
 ### Additional manifests
 
 Any other YAML documents in the configuration file are applied to the cluster
@@ -261,7 +277,10 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl reset` | Remove K3s from the hosts |
 | `k3sctl kubeconfig` | Print the admin kubeconfig |
 | `k3sctl backup` | Create an etcd snapshot |
+| `k3sctl restore` | Restore cluster from an etcd snapshot |
 | `k3sctl config edit` | Edit the cluster configuration |
+| `k3sctl config diff` | Show differences between desired config and actual cluster state |
+| `k3sctl config validate` | Validate a cluster configuration file |
 | `k3sctl config status` | Show the current cluster status |
 | `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
 | `k3sctl etcd-snapshot list` | List etcd snapshots on servers |
@@ -278,6 +297,31 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 `--restore-from`, `--kubeconfig-out`, `--concurrency`,
 `--concurrent-uploads` and `--disable-downgrade-check`.
 `node remove` accepts `--no-drain` and `--force` (to remove the leader).
+`restore` accepts `--from` (required snapshot path) and `--force` (skip confirmation).
+
+## Roadmap
+
+### Done
+
+- Declarative cluster apply (install, upgrade, idempotent re-run)
+- Rolling upgrades with drain/cordon for both servers and agents
+- etcd backup (`backup`) and restore (`restore`) with confirmation prompt
+- Configuration validation (`config validate`)
+- Configuration diff (`config diff`)
+- Deep cluster health checks (`config status --deep`)
+- etcd snapshot management (`etcd-snapshot list`, `etcd-snapshot delete`)
+- Certificate expiry checking (`certificate check`)
+- Token management (`token list`)
+- Node removal with drain (`node remove`)
+- Dry-run mode, kubeconfig export, shell completions
+- Air-gap install — upload image bundles for offline clusters
+
+### Next
+
+- **Multi-server HA**: full support for multi-server etcd clusters (join additional servers, promote/demote)
+- **Cluster import**: adopt an existing K3s cluster into k3sctl management
+- **Registry mirror config**: first-class support for private registry mirrors
+- **Plugin system**: hooks for custom pre/post-apply logic
 
 ## Development
 

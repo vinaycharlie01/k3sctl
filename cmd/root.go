@@ -24,6 +24,7 @@ func NewK3sctl() *cli.App {
 			kubeconfigCommand(),
 			resetCommand(),
 			backupCommand(),
+			restoreCommand(),
 			etcdSnapshotCommand(),
 			certificateCommand(),
 			tokenCommand(),

@@ -13,8 +13,9 @@ import (
 
 type UpgradeServers struct {
 	GenericPhase
-	hosts  cluster.Hosts
-	leader *cluster.Host
+	NoDrain bool
+	hosts   cluster.Hosts
+	leader  *cluster.Host
 }
 
 func (p *UpgradeServers) Title() string {
@@ -43,6 +44,21 @@ func (p *UpgradeServers) Run(ctx context.Context) error {
 
 func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) error {
 	log.Infof("%s: upgrading K3s server from %s to %s", h, h.Metadata.K3sRunningVersion, p.Config.Spec.K3s.Version)
+
+	// Drain/cordon the server before stopping it, unless this is a
+	// single-server cluster (draining the only server is pointless).
+	singleServer := len(p.Config.Spec.Hosts.Filter(func(hh *cluster.Host) bool { return hh.IsServer() })) == 1
+	if !p.NoDrain && p.leader != nil && !singleServer {
+		log.Infof("%s: cordoning node", h)
+		if err := h.CordonNode(p.leader); err != nil {
+			log.Warnf("%s: cordon failed: %v", h, err)
+		}
+
+		log.Infof("%s: draining node", h)
+		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+			log.Warnf("%s: drain failed: %v", h, err)
+		}
+	}
 
 	svc, err := h.Sudo().Service(h.K3sServiceName())
 	if err != nil {
@@ -84,9 +100,27 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
 	}
 
+	if !p.NoDrain && p.leader != nil && !singleServer {
+		log.Infof("%s: uncordoning node", h)
+		if err := h.UncordonNode(p.leader); err != nil {
+			log.Warnf("%s: uncordon failed: %v", h, err)
+		}
+	}
+
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
 	h.Metadata.NeedsUpgrade = false
 	log.Infof("%s: K3s server upgraded", h)
 
 	return nil
+}
+
+func (p *UpgradeServers) CleanUp() {
+	if p.leader == nil {
+		return
+	}
+	for _, h := range p.hosts {
+		if err := h.UncordonNode(p.leader); err != nil {
+			log.Debugf("%s: cleanup uncordon: %v", h, err)
+		}
+	}
 }
