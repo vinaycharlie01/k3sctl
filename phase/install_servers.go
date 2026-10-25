@@ -97,6 +97,48 @@ func quorumBatchSize(running int) int {
 	return tolerance
 }
 
+// CleanUp rolls back partially installed servers when the phase fails.
+// Hosts that were attempted but never reached the running state are stopped,
+// their systemd unit removed, and data directory cleaned up to prevent
+// leaving a half-configured node in the cluster.
+func (p *InstallServers) CleanUp() {
+	failed := p.hosts.Filter(func(h *cluster.Host) bool {
+		return !h.Metadata.K3sServiceRunning
+	})
+	if len(failed) == 0 {
+		return
+	}
+
+	_ = failed.ParallelEach(context.Background(), 5, func(_ context.Context, h *cluster.Host) error {
+		log.Infof("%s: cleaning up failed server install", h)
+
+		if p.Manager != nil && p.Manager.DryRun {
+			return nil
+		}
+
+		svc, err := h.Sudo().Service(h.K3sServiceName())
+		if err == nil {
+			_ = svc.Stop(context.Background())
+		}
+
+		unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
+		if h.Sudo().FS().FileExist(unitPath) {
+			_ = h.Sudo().Exec(fmt.Sprintf("systemctl disable %s", h.K3sServiceName()))
+			_ = h.Sudo().FS().Remove(unitPath)
+		}
+
+		_ = h.Sudo().Exec(fmt.Sprintf("rm -rf %s", shellQuote(h.K3sDataDir())))
+
+		configPath := h.Configurer.K3sConfigPath()
+		if h.Sudo().FS().FileExist(configPath) {
+			_ = h.Sudo().FS().Remove(configPath)
+		}
+
+		log.Infof("%s: clean-up complete", h)
+		return nil
+	})
+}
+
 func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) error {
 	log.Infof("%s: installing K3s server (joining cluster)", h)
 

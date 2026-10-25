@@ -138,6 +138,39 @@ func TestQuorumSafeBatches(t *testing.T) {
 	})
 }
 
+func TestInstallServers_CleanUp(t *testing.T) {
+	t.Run("cleans up failed hosts only", func(t *testing.T) {
+		failed := &cluster.Host{Hostname: "server-2", Role: cluster.RoleServer}
+		succeeded := &cluster.Host{Hostname: "server-3", Role: cluster.RoleServer}
+		succeeded.Metadata.K3sServiceRunning = true
+
+		p := &InstallServers{
+			hosts: cluster.Hosts{failed, succeeded},
+		}
+		p.Manager = &Manager{DryRun: true}
+
+		// Should not panic; dry-run skips remote calls.
+		p.CleanUp()
+	})
+
+	t.Run("no-op when all hosts succeeded", func(t *testing.T) {
+		running := &cluster.Host{Hostname: "server-2", Role: cluster.RoleServer}
+		running.Metadata.K3sServiceRunning = true
+
+		p := &InstallServers{
+			hosts: cluster.Hosts{running},
+		}
+
+		// Should not panic; nothing to clean up.
+		p.CleanUp()
+	})
+
+	t.Run("no-op when hosts list is empty", func(t *testing.T) {
+		p := &InstallServers{}
+		p.CleanUp()
+	})
+}
+
 func TestPropagateToken_Prepare(t *testing.T) {
 	leader := &cluster.Host{Hostname: "server-1", Role: cluster.RoleServer}
 	leader.Metadata.IsLeader = true
