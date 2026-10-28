@@ -159,6 +159,46 @@ func VerifyEtcdMembers(output string, expected int) error {
 	return nil
 }
 
+// etcdMemberListResponse is the JSON response from the etcd v3 gRPC gateway
+// POST /v3/cluster/member/list endpoint.
+type etcdMemberListResponse struct {
+	Members []EtcdMember `json:"members"`
+}
+
+// EtcdMember represents a single etcd cluster member from the REST API.
+type EtcdMember struct {
+	ID       json.Number `json:"ID"`
+	Name     string      `json:"name"`
+	PeerURLs []string    `json:"peerURLs"`
+}
+
+// VerifyEtcdMembersFromAPI parses the JSON response from the etcd v3 REST API
+// and verifies that the cluster has exactly the expected number of members.
+func VerifyEtcdMembersFromAPI(jsonOutput string, expected int) error {
+	if strings.TrimSpace(jsonOutput) == "" {
+		return fmt.Errorf("etcd member list API response is empty")
+	}
+	var resp etcdMemberListResponse
+	if err := json.Unmarshal([]byte(jsonOutput), &resp); err != nil {
+		return fmt.Errorf("parse etcd member list response: %w (output: %.200s)", err, jsonOutput)
+	}
+	count := len(resp.Members)
+	if count != expected {
+		return fmt.Errorf("etcd cluster has %d members, want %d", count, expected)
+	}
+	return nil
+}
+
+// ParseEtcdMembersFromAPI parses the JSON response from the etcd v3 REST API
+// and returns the member list.
+func ParseEtcdMembersFromAPI(jsonOutput string) ([]EtcdMember, error) {
+	var resp etcdMemberListResponse
+	if err := json.Unmarshal([]byte(jsonOutput), &resp); err != nil {
+		return nil, fmt.Errorf("parse etcd member list response: %w", err)
+	}
+	return resp.Members, nil
+}
+
 func sortedNames(names map[string]struct{}) []string {
 	result := make([]string, 0, len(names))
 	for name := range names {

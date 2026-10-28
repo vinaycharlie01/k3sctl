@@ -399,19 +399,18 @@ func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node
 	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
 
 	result, err := r.remote(ctx, leader.Address,
-		"sudo sh -c 'ETCDCTL_API=3 /var/lib/rancher/k3s/data/*/bin/etcdctl "+
-			"--endpoints https://127.0.0.1:2379 "+
+		"sudo curl -sf --connect-timeout 10 "+
 			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
 			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
 			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"member list'",
+			"-X POST https://127.0.0.1:2379/v3/cluster/member/list",
 		r.options.VerifyTimeout)
 	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
 	if err != nil {
 		return fmt.Errorf("etcd member list on %s: %w", leader.Name, err)
 	}
 
-	return VerifyEtcdMembers(result.Stdout, expectedMembers)
+	return VerifyEtcdMembersFromAPI(result.Stdout, expectedMembers)
 }
 
 func (r *Runner) verifyAllServerAPIs(ctx context.Context, servers []*environment.Node) error {

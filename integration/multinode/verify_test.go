@@ -222,6 +222,42 @@ a1b2c3d4e5f6a7b8, started, server3, https://10.0.0.3:2380, https://10.0.0.3:2379
 	}
 }
 
+func TestVerifyEtcdMembersFromAPI(t *testing.T) {
+	const validJSON = `{"header":{"cluster_id":"12345"},"members":[` +
+		`{"ID":"10276657743932975437","name":"server1","peerURLs":["https://10.0.0.1:2380"],"clientURLs":["https://10.0.0.1:2379"]},` +
+		`{"ID":"4211926507498291319","name":"server2","peerURLs":["https://10.0.0.2:2380"],"clientURLs":["https://10.0.0.2:2379"]},` +
+		`{"ID":"11634834085411903084","name":"server3","peerURLs":["https://10.0.0.3:2380"],"clientURLs":["https://10.0.0.3:2379"]}` +
+		`]}`
+
+	tests := []struct {
+		name     string
+		output   string
+		expected int
+		wantErr  string
+	}{
+		{name: "3 members match", output: validJSON, expected: 3},
+		{name: "wrong count", output: validJSON, expected: 5, wantErr: "etcd cluster has 3 members, want 5"},
+		{name: "empty output", output: "", expected: 1, wantErr: "empty"},
+		{name: "invalid json", output: "not json", expected: 1, wantErr: "parse etcd member list response"},
+		{name: "single member", output: `{"members":[{"ID":"123","name":"s1","peerURLs":["https://10.0.0.1:2380"]}]}`, expected: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := VerifyEtcdMembersFromAPI(tt.output, tt.expected)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("VerifyEtcdMembersFromAPI() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("VerifyEtcdMembersFromAPI() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestCheckAPIURL(t *testing.T) {
 	tests := []struct {
 		name    string
