@@ -5,6 +5,8 @@ clusters, created and inspired by [k0sctl](https://github.com/k0sproject/k0sctl)
 at a YAML file describing your hosts and it will install, upgrade, reconfigure,
 back up and reset the cluster over SSH.
 
+
+
 ## Features
 
 - Declarative cluster configuration (servers and agents in one file)
@@ -315,10 +317,10 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - Node removal with drain (`node remove`)
 - Dry-run mode, kubeconfig export, shell completions
 - Air-gap install — upload image bundles for offline clusters
+- Multi-server HA — quorum-safe batched server joining, etcd member removal on reset, stale member detection
 
 ### Next
 
-- **Multi-server HA**: full support for multi-server etcd clusters (join additional servers, promote/demote)
 - **Cluster import**: adopt an existing K3s cluster into k3sctl management
 - **Registry mirror config**: first-class support for private registry mirrors
 - **Plugin system**: hooks for custom pre/post-apply logic

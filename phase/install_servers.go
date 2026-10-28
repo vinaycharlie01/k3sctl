@@ -39,12 +39,104 @@ func (p *InstallServers) Run(ctx context.Context) error {
 		return fmt.Errorf("leader node token not available")
 	}
 
-	for _, h := range p.hosts {
-		if err := p.installServer(ctx, h); err != nil {
-			return err
+	running := p.Config.Spec.Hosts.Filter(func(h *cluster.Host) bool {
+		return h.IsServer() && h.Metadata.K3sServiceRunning
+	})
+
+	batches := quorumSafeBatches(len(running), p.hosts)
+	for i, batch := range batches {
+		log.Infof("installing server batch %d/%d (%d hosts)", i+1, len(batches), len(batch))
+		for _, h := range batch {
+			if err := p.installServer(ctx, h); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// quorumSafeBatches splits hosts into batches that never exceed quorum
+// tolerance. With N running servers, quorum is (N/2)+1, so we can add at
+// most (N-1)/2 new members before quorum shifts. The first batch is always
+// size 1 when only a single server is running (the leader), because adding
+// two members to a single-node cluster can lose quorum if both are slow to
+// join. After each batch the running count increases by the batch size.
+func quorumSafeBatches(numRunning int, hosts cluster.Hosts) []cluster.Hosts {
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	var batches []cluster.Hosts
+	remaining := hosts
+	running := numRunning
+
+	for len(remaining) > 0 {
+		batchSize := quorumBatchSize(running)
+		if batchSize > len(remaining) {
+			batchSize = len(remaining)
+		}
+		batches = append(batches, remaining[:batchSize])
+		remaining = remaining[batchSize:]
+		running += batchSize
+	}
+
+	return batches
+}
+
+// quorumBatchSize returns how many servers can safely join at once given
+// the current number of running servers. For a cluster of N nodes, quorum
+// is (N/2)+1 and the tolerance is N - quorum = (N-1)/2.
+func quorumBatchSize(running int) int {
+	if running <= 1 {
+		return 1
+	}
+	tolerance := (running - 1) / 2
+	if tolerance < 1 {
+		return 1
+	}
+	return tolerance
+}
+
+// CleanUp rolls back partially installed servers when the phase fails.
+// Hosts that were attempted but never reached the running state are stopped,
+// their systemd unit removed, and data directory cleaned up to prevent
+// leaving a half-configured node in the cluster.
+func (p *InstallServers) CleanUp() {
+	failed := p.hosts.Filter(func(h *cluster.Host) bool {
+		return !h.Metadata.K3sServiceRunning
+	})
+	if len(failed) == 0 {
+		return
+	}
+
+	_ = failed.ParallelEach(context.Background(), 5, func(_ context.Context, h *cluster.Host) error {
+		log.Infof("%s: cleaning up failed server install", h)
+
+		if p.Manager != nil && p.Manager.DryRun {
+			return nil
+		}
+
+		svc, err := h.Sudo().Service(h.K3sServiceName())
+		if err == nil {
+			_ = svc.Stop(context.Background())
+		}
+
+		unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
+		if h.Sudo().FS().FileExist(unitPath) {
+			_ = h.Sudo().Exec(fmt.Sprintf("systemctl disable %s", h.K3sServiceName()))
+			_ = h.Sudo().FS().Remove(unitPath)
+		}
+
+		_ = h.Sudo().Exec(fmt.Sprintf("rm -rf %s", shellQuote(h.K3sDataDir())))
+
+		configPath := h.Configurer.K3sConfigPath()
+		if h.Sudo().FS().FileExist(configPath) {
+			_ = h.Sudo().FS().Remove(configPath)
+		}
+
+		log.Infof("%s: clean-up complete", h)
+		return nil
+	})
 }
 
 func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) error {
