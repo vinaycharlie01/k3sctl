@@ -88,12 +88,14 @@ func (p *ValidateEtcdMembers) Run(ctx context.Context) error {
 // automatically; otherwise an error is returned.
 func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 	memberListCmd := fmt.Sprintf(
-		"ETCDCTL_API=3 %s etcdctl --endpoints https://127.0.0.1:2379 "+
+		"ETCDCTL=$(find %s/data -name etcdctl -type f 2>/dev/null | head -1); "+
+			"[ -z \"$ETCDCTL\" ] && exit 0; "+
+			"ETCDCTL_API=3 \"$ETCDCTL\" --endpoints https://127.0.0.1:2379 "+
 			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
 			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
 			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
 			"member list -w simple 2>/dev/null || true",
-		shellQuote(p.leader.K3sBinaryDir()),
+		shellQuote(p.leader.K3sDataDir()),
 	)
 
 	memberOutput, err := p.leader.Sudo().ExecOutput(memberListCmd)
@@ -129,12 +131,14 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 	for _, sm := range staleMembers {
 		log.Infof("%s: removing stale etcd member %s (%s)", p.leader, sm.id, sm.peerURL)
 		removeCmd := fmt.Sprintf(
-			"ETCDCTL_API=3 %s etcdctl --endpoints https://127.0.0.1:2379 "+
+			"ETCDCTL=$(find %s/data -name etcdctl -type f 2>/dev/null | head -1); "+
+				"[ -z \"$ETCDCTL\" ] && { echo etcdctl not found >&2; exit 1; }; "+
+				"ETCDCTL_API=3 \"$ETCDCTL\" --endpoints https://127.0.0.1:2379 "+
 				"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
 				"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
 				"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
 				"member remove %s",
-			shellQuote(p.leader.K3sBinaryDir()), sm.id,
+			shellQuote(p.leader.K3sDataDir()), sm.id,
 		)
 		if err := p.leader.Sudo().Exec(removeCmd); err != nil {
 			return fmt.Errorf("%s: failed to remove stale etcd member %s: %w", p.leader, sm.id, err)

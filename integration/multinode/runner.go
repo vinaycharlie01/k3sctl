@@ -399,12 +399,14 @@ func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node
 	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
 
 	result, err := r.remote(ctx, leader.Address,
-		"sudo sh -c 'ETCDCTL_API=3 /var/lib/rancher/k3s/data/*/bin/etcdctl "+
-			"--endpoints https://127.0.0.1:2379 "+
-			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
-			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
-			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"member list'",
+		`sudo sh -c 'ETCDCTL=$(find /var/lib/rancher/k3s/data -name etcdctl -type f 2>/dev/null | head -1); `+
+			`if [ -z "$ETCDCTL" ]; then echo "etcdctl binary not found" >&2; exit 1; fi; `+
+			`ETCDCTL_API=3 "$ETCDCTL" `+
+			`--endpoints https://127.0.0.1:2379 `+
+			`--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt `+
+			`--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt `+
+			`--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key `+
+			`member list'`,
 		r.options.VerifyTimeout)
 	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
 	if err != nil {
