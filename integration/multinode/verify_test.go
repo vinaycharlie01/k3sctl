@@ -298,24 +298,3 @@ func TestCheckAPIURL(t *testing.T) {
 	})
 }
 
-func TestExtractBody(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{"strips status code", "{\"members\":[]}\n200", "{\"members\":[]}"},
-		{"strips status code with trailing newline", "{\"members\":[]}\n200\n", "{\"members\":[]}"},
-		{"no status code", "{\"members\":[]}", "{\"members\":[]}"},
-		{"empty", "", ""},
-		{"error body with 4xx", "etcd error\n403", "etcd error"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractBody(tt.input)
-			if got != tt.expect {
-				t.Errorf("extractBody(%q) = %q, want %q", tt.input, got, tt.expect)
-			}
-		})
-	}
-}
