@@ -398,21 +398,59 @@ func (r *Runner) verifyKubeconfig(ctx context.Context, configPath string, server
 func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node, expectedMembers int) error {
 	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
 
-	result, err := r.remote(ctx, leader.Address,
-		"sudo curl -sf --connect-timeout 10 "+
-			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
-			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
-			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"-H 'Content-Type: application/json' "+
-			"-d '{}' "+
-			"https://127.0.0.1:2379/v3/cluster/member/list",
-		r.options.VerifyTimeout)
-	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
-	if err != nil {
-		return fmt.Errorf("etcd member list on %s: %w", leader.Name, err)
+	const curlCmd = "sudo curl -sS --connect-timeout 10 " +
+		"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt " +
+		"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt " +
+		"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key " +
+		"-H 'Content-Type: application/json' " +
+		"-d '{}' " +
+		"-w '\\n%{http_code}' " +
+		"https://127.0.0.1:2379/v3/cluster/member/list"
+
+	var result Result
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		var err error
+		result, err = r.remote(ctx, leader.Address, curlCmd, r.options.VerifyTimeout)
+		r.writeArtifact(fmt.Sprintf("etcd-members-attempt%d.log", attempt),
+			fmt.Sprintf("stdout:\n%s\nstderr:\n%s", result.Stdout, result.Stderr))
+
+		if err == nil {
+			if err := VerifyEtcdMembersFromAPI(extractBody(result.Stdout), expectedMembers); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+		} else {
+			lastErr = fmt.Errorf("etcd member list on %s (attempt %d): %w", leader.Name, attempt, err)
+		}
+
+		if attempt < 5 {
+			log.Warnf("etcd check attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt*5) * time.Second):
+			}
+		}
 	}
 
-	return VerifyEtcdMembersFromAPI(result.Stdout, expectedMembers)
+	r.writeArtifact("etcd-members.log",
+		fmt.Sprintf("final stdout:\n%s\nfinal stderr:\n%s", result.Stdout, result.Stderr))
+	return fmt.Errorf("etcd verification failed after 5 attempts: %w", lastErr)
+}
+
+// extractBody strips a trailing HTTP status-code line appended by curl's
+// -w '\n%{http_code}' option, returning just the response body.
+func extractBody(output string) string {
+	output = strings.TrimRight(output, " \t\r\n")
+	if i := strings.LastIndex(output, "\n"); i >= 0 {
+		candidate := strings.TrimSpace(output[i+1:])
+		if len(candidate) == 3 && candidate[0] >= '1' && candidate[0] <= '5' {
+			return output[:i]
+		}
+	}
+	return output
 }
 
 func (r *Runner) verifyAllServerAPIs(ctx context.Context, servers []*environment.Node) error {
