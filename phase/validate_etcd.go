@@ -94,10 +94,11 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 	const etcdCurlBase = "curl -sf --connect-timeout 10 " +
 		"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt " +
 		"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt " +
-		"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "
+		"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key " +
+		"-H 'Content-Type: application/json' "
 
 	memberOutput, err := p.leader.Sudo().ExecOutput(
-		etcdCurlBase + "-X POST https://127.0.0.1:2379/v3/cluster/member/list 2>/dev/null || true",
+		etcdCurlBase + "-d '{}' https://127.0.0.1:2379/v3/cluster/member/list 2>/dev/null || true",
 	)
 	if err != nil {
 		log.Warnf("%s: could not list etcd members, skipping stale member check: %v", p.leader, err)

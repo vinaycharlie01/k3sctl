@@ -403,7 +403,9 @@ func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node
 			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
 			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
 			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"-X POST https://127.0.0.1:2379/v3/cluster/member/list",
+			"-H 'Content-Type: application/json' "+
+			"-d '{}' "+
+			"https://127.0.0.1:2379/v3/cluster/member/list",
 		r.options.VerifyTimeout)
 	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
 	if err != nil {
