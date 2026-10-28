@@ -297,4 +297,3 @@ func TestCheckAPIURL(t *testing.T) {
 		}
 	})
 }
-
