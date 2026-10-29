@@ -214,4 +214,3 @@ const multiServerReadyJSON = `{"items":[
 {"metadata":{"name":"srv-3"},"status":{"conditions":[{"type":"Ready","status":"True"}]}},
 {"metadata":{"name":"agt-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
-

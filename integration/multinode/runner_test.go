@@ -28,7 +28,6 @@ const (
 {"metadata":{"name":"run-agent1"},"status":{"conditions":[{"type":"Ready","status":"False"}]}},
 {"metadata":{"name":"run-agent2"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
-
 )
 
 func runnerNodes() []environment.Node {

@@ -29,7 +29,6 @@ const haReadyNodesJSON = `{"items":[
 {"metadata":{"name":"ha-agt-2"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
 
-
 // ---------- Batched Install ----------
 
 // TestHAServerBatchedInstall verifies that a multi-server apply with
