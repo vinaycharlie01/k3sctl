@@ -15,13 +15,13 @@ func fileExistsLocal(path string) bool {
 }
 
 type EtcdSnapshotConfig struct {
-	Scheduled    bool               `yaml:"scheduled,omitempty"`
-	ScheduleCron string             `yaml:"scheduleCron,omitempty"`
-	Retention    int                `yaml:"retention,omitempty"`
-	Dir          string             `yaml:"dir,omitempty"`
-	Compress     bool               `yaml:"compress,omitempty"`
-	S3           *EtcdS3Config      `yaml:"s3,omitempty"`
-	Prune        *EtcdPruneConfig   `yaml:"prune,omitempty"`
+	Scheduled    bool             `yaml:"scheduled,omitempty"`
+	ScheduleCron string           `yaml:"scheduleCron,omitempty"`
+	Retention    int              `yaml:"retention,omitempty"`
+	Dir          string           `yaml:"dir,omitempty"`
+	Compress     bool             `yaml:"compress,omitempty"`
+	S3           *EtcdS3Config    `yaml:"s3,omitempty"`
+	Prune        *EtcdPruneConfig `yaml:"prune,omitempty"`
 }
 
 type EtcdPruneConfig struct {
@@ -111,14 +111,14 @@ type K3s struct {
 	Config         dig.Mapping           `yaml:"config,omitempty"`
 	ExtraArgs      Flags                 `yaml:"extraArgs,omitempty"`
 	EtcdSnapshots  *EtcdSnapshotConfig   `yaml:"etcdSnapshots,omitempty"`
-	SecretsEncrypt *SecretsEncryptConfig  `yaml:"secretsEncrypt,omitempty"`
-	CertRotate     *CertRotateConfig      `yaml:"certRotate,omitempty"`
-	Token          *TokenConfig           `yaml:"token,omitempty"`
-	Preflight      *PreflightConfig       `yaml:"preflight,omitempty"`
-	Airgap         *AirgapConfig          `yaml:"airgap,omitempty"`
-	Registries     *RegistriesConfig      `yaml:"registries,omitempty"`
-	HealthCheck    *HealthCheckConfig     `yaml:"healthCheck,omitempty"`
-	VersionString  string                 `yaml:"-"`
+	SecretsEncrypt *SecretsEncryptConfig `yaml:"secretsEncrypt,omitempty"`
+	CertRotate     *CertRotateConfig     `yaml:"certRotate,omitempty"`
+	Token          *TokenConfig          `yaml:"token,omitempty"`
+	Preflight      *PreflightConfig      `yaml:"preflight,omitempty"`
+	Airgap         *AirgapConfig         `yaml:"airgap,omitempty"`
+	Registries     *RegistriesConfig     `yaml:"registries,omitempty"`
+	HealthCheck    *HealthCheckConfig    `yaml:"healthCheck,omitempty"`
+	VersionString  string                `yaml:"-"`
 }
 
 func (k *K3s) SetDefaults() {
