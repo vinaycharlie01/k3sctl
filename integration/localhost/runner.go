@@ -194,9 +194,6 @@ func (r *Runner) apply(ctx context.Context, configPath string) error {
 }
 
 func (r *Runner) verify(ctx context.Context, configPath string) error {
-	if err := r.verifyStatus(ctx, configPath); err != nil {
-		return err
-	}
 	if err := r.verifyService(ctx); err != nil {
 		return err
 	}
@@ -208,18 +205,6 @@ func (r *Runner) verify(ctx context.Context, configPath string) error {
 	}
 	if err := r.verifyKubeconfig(ctx, configPath); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (r *Runner) verifyStatus(ctx context.Context, configPath string) error {
-	stdout, stderr, _, err := r.exec(ctx, r.opts.Binary, "config", "status", "-c", configPath)
-	r.writeArtifact("status.log", stdout+stderr)
-	if err != nil {
-		return fmt.Errorf("k3sctl config status: %w", err)
-	}
-	if !strings.Contains(stdout, "running") {
-		return fmt.Errorf("config status does not report running:\n%s", stdout)
 	}
 	return nil
 }
@@ -318,14 +303,6 @@ func (r *Runner) verifyTeardown(ctx context.Context, configPath string) error {
 		}
 	}
 
-	stdout, stderr, _, err := r.exec(ctx, r.opts.Binary, "config", "status", "-c", configPath)
-	r.writeArtifact("after-reset-status.log", stdout+stderr)
-	if err != nil {
-		return fmt.Errorf("config status after reset: %w", err)
-	}
-	if !strings.Contains(stdout, "not installed") {
-		return fmt.Errorf("config status does not report 'not installed' after reset:\n%s", stdout)
-	}
 	return nil
 }
 

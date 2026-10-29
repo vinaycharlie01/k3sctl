@@ -6,8 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
 )
 
 const allReadyJSON = `{"items":[
@@ -119,51 +117,6 @@ func TestVerifyVersion(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Fatalf("VerifyVersion() error = %v", err)
-			}
-		})
-	}
-}
-
-func TestVerifyStatus(t *testing.T) {
-	nodes := []environment.Node{{Name: "server"}, {Name: "agent1"}}
-
-	tests := []struct {
-		name    string
-		output  string
-		wantErr string
-	}{
-		{
-			name:   "all running",
-			output: "HOST     ROLE    STATUS\nserver   server  running\nagent1   agent   running\n",
-		},
-		{
-			name:    "not running",
-			output:  "server   server  stopped\nagent1   agent   running\n",
-			wantErr: `host "server" status is "stopped"`,
-		},
-		{
-			name:    "missing host",
-			output:  "server   server  running\n",
-			wantErr: `host "agent1" missing from status output`,
-		},
-		{
-			name:    "empty output",
-			output:  "",
-			wantErr: "missing from status output",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := VerifyStatus(tt.output, nodes)
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("VerifyStatus() error = %v", err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("VerifyStatus() error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
 	}

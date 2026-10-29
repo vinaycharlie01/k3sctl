@@ -293,9 +293,6 @@ func (r *Runner) verify(ctx context.Context, nodes []environment.Node, configPat
 		return errors.New("no server node found")
 	}
 
-	if err := r.verifyStatus(ctx, nodes, configPath); err != nil {
-		return err
-	}
 	if err := r.verifyServices(ctx, nodes); err != nil {
 		return err
 	}
@@ -320,18 +317,6 @@ func (r *Runner) verify(ctx context.Context, nodes []environment.Node, configPat
 	}
 
 	return r.verifyKubeconfig(ctx, configPath, server)
-}
-
-func (r *Runner) verifyStatus(ctx context.Context, nodes []environment.Node, configPath string) error {
-	verifyCtx, cancel := context.WithTimeout(ctx, r.options.VerifyTimeout)
-	defer cancel()
-
-	result, err := r.options.Commands.Run(verifyCtx, r.options.WorkDir, r.options.Binary, "config", "status", "-c", configPath)
-	r.writeArtifact("status.log", formatResult(result, err))
-	if err != nil {
-		return fmt.Errorf("k3sctl config status: %w", err)
-	}
-	return VerifyStatus(result.Stdout, nodes)
 }
 
 func (r *Runner) verifyServices(ctx context.Context, nodes []environment.Node) error {

@@ -29,7 +29,6 @@ const haReadyNodesJSON = `{"items":[
 {"metadata":{"name":"ha-agt-2"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
 
-const haStatusTable = "ha-srv-1\tserver\trunning\nha-srv-2\tserver\trunning\nha-srv-3\tserver\trunning\nha-agt-1\tagent\trunning\nha-agt-2\tagent\trunning\n"
 
 // ---------- Batched Install ----------
 
@@ -404,10 +403,6 @@ func TestHAFullLifecycle(t *testing.T) {
 						"==> Running phase: Validate etcd members\n" +
 						"ha-srv-1: all etcd members match configured hosts\n",
 				}, nil
-			case "config":
-				if len(args) > 1 && args[1] == "status" {
-					return multinode.Result{Stdout: haStatusTable}, nil
-				}
 			case "kubeconfig":
 				return multinode.Result{Stdout: "server: https://10.0.0.1:6443\n"}, nil
 			case "reset":
@@ -454,14 +449,17 @@ func TestHAFullLifecycle(t *testing.T) {
 		t.Error("apply output missing etcd validation")
 	}
 
-	// Step 2: config status (verify cluster health)
-	result, err = f.commands.Run(ctx, f.workDir, f.options.Binary, "config", "status", "-c", f.configPath)
-	if err != nil {
-		t.Fatalf("config status failed: %v", err)
+	// Step 2: verify services are running on each node
+	for _, host := range []string{"ha-srv-1", "ha-srv-2", "ha-srv-3"} {
+		svcResult, svcErr := f.remote.Run(ctx, host, "systemctl is-active --quiet k3s")
+		if svcErr != nil {
+			t.Errorf("k3s service not active on %s: %v (stdout: %s)", host, svcErr, svcResult.Stdout)
+		}
 	}
-	for _, host := range []string{"ha-srv-1", "ha-srv-2", "ha-srv-3", "ha-agt-1", "ha-agt-2"} {
-		if !strings.Contains(result.Stdout, host) {
-			t.Errorf("status output missing host %s", host)
+	for _, host := range []string{"ha-agt-1", "ha-agt-2"} {
+		svcResult, svcErr := f.remote.Run(ctx, host, "systemctl is-active --quiet k3s-agent")
+		if svcErr != nil {
+			t.Errorf("k3s-agent service not active on %s: %v (stdout: %s)", host, svcErr, svcResult.Stdout)
 		}
 	}
 
@@ -474,8 +472,8 @@ func TestHAFullLifecycle(t *testing.T) {
 		t.Error("reset output missing etcd member removal")
 	}
 
-	// Verify ordering: apply → config → kubeconfig → reset
-	wantOrder := []string{"apply", "config"}
+	// Verify ordering: apply → reset
+	wantOrder := []string{"apply", "reset"}
 	for i, want := range wantOrder {
 		if i >= len(cliCalls) {
 			t.Fatalf("expected at least %d calls, got %d: %v", i+1, len(cliCalls), cliCalls)

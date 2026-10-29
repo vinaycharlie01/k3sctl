@@ -57,8 +57,6 @@ func TestUpgradeApplyCallsDrainAndUncordon(t *testing.T) {
 			cliCommands = append(cliCommands, args[0])
 		}
 		switch {
-		case len(args) >= 2 && args[0] == "config" && args[1] == "status":
-			return multinode.Result{Stdout: multiServerStatusTable}, nil
 		case len(args) >= 1 && args[0] == "kubeconfig":
 			return multinode.Result{Stdout: "server: https://10.0.0.10:6443\n"}, nil
 		}
@@ -217,4 +215,3 @@ const multiServerReadyJSON = `{"items":[
 {"metadata":{"name":"agt-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
 
-const multiServerStatusTable = "srv-1\tserver\trunning\nsrv-2\tserver\trunning\nsrv-3\tserver\trunning\nagt-1\tagent\trunning\n"

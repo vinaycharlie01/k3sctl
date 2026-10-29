@@ -6,8 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
 )
 
 func TestParseNodesEmptyItems(t *testing.T) {
@@ -67,41 +65,6 @@ func TestVerifyVersionSubstringMatch(t *testing.T) {
 	output := "k3s version v1.30.0+k3s1 (abc123)"
 	if err := VerifyVersion(output, "v1.30.0"); err != nil {
 		t.Fatalf("VerifyVersion() should match substring, error = %v", err)
-	}
-}
-
-func TestVerifyStatusSkipsHeaderLine(t *testing.T) {
-	nodes := []environment.Node{{Name: "server"}}
-	output := "HOST     ROLE    STATUS\nserver   server  running\n"
-	if err := VerifyStatus(output, nodes); err != nil {
-		t.Fatalf("VerifyStatus() error = %v", err)
-	}
-}
-
-func TestVerifyStatusMultipleNodes(t *testing.T) {
-	nodes := []environment.Node{
-		{Name: "server"},
-		{Name: "agent1"},
-		{Name: "agent2"},
-	}
-	output := "server   server  running\nagent1   agent   running\nagent2   agent   running\n"
-	if err := VerifyStatus(output, nodes); err != nil {
-		t.Fatalf("VerifyStatus() error = %v", err)
-	}
-}
-
-func TestVerifyStatusPartiallyRunning(t *testing.T) {
-	nodes := []environment.Node{
-		{Name: "server"},
-		{Name: "agent1"},
-	}
-	output := "server   server  running\nagent1   agent   stopped\n"
-	err := VerifyStatus(output, nodes)
-	if err == nil {
-		t.Fatal("VerifyStatus() error = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), `"agent1"`) {
-		t.Errorf("error = %v, want it to mention agent1", err)
 	}
 }
 

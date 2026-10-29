@@ -99,9 +99,6 @@ func TestRestoreFullCycle(t *testing.T) {
 		calls = append(calls, cmd)
 		switch cmd {
 		case "config":
-			if len(args) > 1 && args[1] == "status" {
-				return multinode.Result{Stdout: statusTable}, nil
-			}
 			if len(args) > 1 && args[1] == "validate" {
 				return multinode.Result{Stdout: "configuration is valid\n"}, nil
 			}

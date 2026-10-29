@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
 )
 
 // NodeStatus is the subset of a Kubernetes Node used by the assertions.
@@ -90,30 +88,6 @@ func VerifyVersion(output, want string) error {
 	}
 	if !strings.Contains(output, want) {
 		return fmt.Errorf("installed K3s version does not contain %q: %s", want, strings.TrimSpace(output))
-	}
-	return nil
-}
-
-// VerifyStatus checks that every host in `k3sctl config status` reports
-// "running". The table has a HOST, ROLE and STATUS column.
-func VerifyStatus(output string, nodes []environment.Node) error {
-	statuses := make(map[string]string)
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		statuses[fields[0]] = fields[2]
-	}
-
-	for _, node := range nodes {
-		status, ok := statuses[node.Name]
-		if !ok {
-			return fmt.Errorf("host %q missing from status output", node.Name)
-		}
-		if status != "running" {
-			return fmt.Errorf("host %q status is %q, want %q", node.Name, status, "running")
-		}
 	}
 	return nil
 }
