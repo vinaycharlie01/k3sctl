@@ -524,6 +524,200 @@ func TestGenerateServerConfig_TokenConfig(t *testing.T) {
 	})
 }
 
+func TestGenerateServerConfig_LabelsAndTaints(t *testing.T) {
+	k := &K3s{}
+	k.SetDefaults()
+	host := &Host{
+		Role: RoleServer,
+		Labels: map[string]string{
+			"environment": "production",
+			"tier":        "control-plane",
+		},
+		Taints: []string{
+			"node-role.kubernetes.io/master:NoSchedule",
+		},
+	}
+
+	data, err := k.GenerateServerConfig(host, "", true, "")
+	require.NoError(t, err)
+
+	var config map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &config))
+
+	labels, ok := config["node-label"].([]interface{})
+	require.True(t, ok, "node-label should be a list")
+	assert.Len(t, labels, 2)
+
+	taints, ok := config["node-taint"].([]interface{})
+	require.True(t, ok, "node-taint should be a list")
+	assert.Len(t, taints, 1)
+	assert.Equal(t, "node-role.kubernetes.io/master:NoSchedule", taints[0])
+}
+
+func TestGenerateAgentConfig_LabelsAndTaints(t *testing.T) {
+	k := &K3s{}
+	k.SetDefaults()
+	host := &Host{
+		Role: RoleAgent,
+		Labels: map[string]string{
+			"pool": "workers",
+		},
+		Taints: []string{
+			"dedicated=gpu:NoSchedule",
+		},
+	}
+
+	data, err := k.GenerateAgentConfig(host, "10.0.0.1", "token")
+	require.NoError(t, err)
+
+	var config map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &config))
+
+	labels, ok := config["node-label"].([]interface{})
+	require.True(t, ok, "node-label should be a list")
+	assert.Len(t, labels, 1)
+	assert.Equal(t, "pool=workers", labels[0])
+
+	taints, ok := config["node-taint"].([]interface{})
+	require.True(t, ok, "node-taint should be a list")
+	assert.Len(t, taints, 1)
+	assert.Equal(t, "dedicated=gpu:NoSchedule", taints[0])
+}
+
+func TestK3sValidate_SecretsEncryptRequiresEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		k3s     K3s
+		wantErr bool
+	}{
+		{
+			"rotateKeys without enabled",
+			K3s{SecretsEncrypt: &SecretsEncryptConfig{RotateKeys: true}},
+			true,
+		},
+		{
+			"reencrypt without enabled",
+			K3s{SecretsEncrypt: &SecretsEncryptConfig{Reencrypt: true}},
+			true,
+		},
+		{
+			"rotateKeys with enabled",
+			K3s{SecretsEncrypt: &SecretsEncryptConfig{Enabled: true, RotateKeys: true}},
+			false,
+		},
+		{
+			"reencrypt with enabled",
+			K3s{SecretsEncrypt: &SecretsEncryptConfig{Enabled: true, Reencrypt: true}},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.k3s.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestK3sValidate_CertRotateCARequiresEnabled(t *testing.T) {
+	k := K3s{CertRotate: &CertRotateConfig{RotateCA: true}}
+	assert.Error(t, k.Validate())
+
+	k2 := K3s{CertRotate: &CertRotateConfig{Enabled: true, RotateCA: true}}
+	assert.NoError(t, k2.Validate())
+}
+
+func TestK3sValidate_EtcdPruneRequiresRetention(t *testing.T) {
+	k := K3s{EtcdSnapshots: &EtcdSnapshotConfig{
+		Prune: &EtcdPruneConfig{Enabled: true, Retention: 0},
+	}}
+	assert.Error(t, k.Validate())
+
+	k2 := K3s{EtcdSnapshots: &EtcdSnapshotConfig{
+		Prune: &EtcdPruneConfig{Enabled: true, Retention: 5},
+	}}
+	assert.NoError(t, k2.Validate())
+}
+
+func TestK3sYAMLRoundTrip_NewFields(t *testing.T) {
+	input := `
+version: v1.30.0+k3s1
+secretsEncrypt:
+  enabled: true
+  rotateKeys: true
+  reencrypt: true
+certRotate:
+  enabled: true
+  rotateCA: true
+token:
+  serverToken: srv
+  rotate: true
+etcdSnapshots:
+  scheduled: true
+  prune:
+    enabled: true
+    retention: 10
+    name: on-demand
+registries:
+  mirrors:
+    docker.io:
+      endpoint:
+        - https://registry.example.com
+  configs:
+    registry.example.com:
+      auth:
+        username: user
+        password: pass
+      tls:
+        caFile: /ca.pem
+        insecureSkipVerify: true
+healthCheck:
+  enabled: true
+  timeout: 120s
+`
+	var k K3s
+	require.NoError(t, yaml.Unmarshal([]byte(input), &k))
+
+	require.NotNil(t, k.SecretsEncrypt)
+	assert.True(t, k.SecretsEncrypt.RotateKeys)
+	assert.True(t, k.SecretsEncrypt.Reencrypt)
+
+	require.NotNil(t, k.CertRotate)
+	assert.True(t, k.CertRotate.RotateCA)
+
+	require.NotNil(t, k.Token)
+	assert.True(t, k.Token.Rotate)
+
+	require.NotNil(t, k.EtcdSnapshots)
+	require.NotNil(t, k.EtcdSnapshots.Prune)
+	assert.True(t, k.EtcdSnapshots.Prune.Enabled)
+	assert.Equal(t, 10, k.EtcdSnapshots.Prune.Retention)
+	assert.Equal(t, "on-demand", k.EtcdSnapshots.Prune.Name)
+
+	require.NotNil(t, k.Registries)
+	require.Len(t, k.Registries.Mirrors, 1)
+	mirror := k.Registries.Mirrors["docker.io"]
+	assert.Equal(t, []string{"https://registry.example.com"}, mirror.Endpoint)
+
+	require.Len(t, k.Registries.Configs, 1)
+	regCfg := k.Registries.Configs["registry.example.com"]
+	require.NotNil(t, regCfg.Auth)
+	assert.Equal(t, "user", regCfg.Auth.Username)
+	assert.Equal(t, "pass", regCfg.Auth.Password)
+	require.NotNil(t, regCfg.TLS)
+	assert.Equal(t, "/ca.pem", regCfg.TLS.CAFile)
+	assert.True(t, regCfg.TLS.InsecureSkipVerify)
+
+	require.NotNil(t, k.HealthCheck)
+	assert.True(t, k.HealthCheck.Enabled)
+	assert.Equal(t, "120s", k.HealthCheck.Timeout)
+}
+
 func TestK3sYAMLRoundTrip(t *testing.T) {
 	input := `
 version: v1.30.0+k3s1

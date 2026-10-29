@@ -15,12 +15,19 @@ func fileExistsLocal(path string) bool {
 }
 
 type EtcdSnapshotConfig struct {
-	Scheduled    bool          `yaml:"scheduled,omitempty"`
-	ScheduleCron string        `yaml:"scheduleCron,omitempty"`
-	Retention    int           `yaml:"retention,omitempty"`
-	Dir          string        `yaml:"dir,omitempty"`
-	Compress     bool          `yaml:"compress,omitempty"`
-	S3           *EtcdS3Config `yaml:"s3,omitempty"`
+	Scheduled    bool               `yaml:"scheduled,omitempty"`
+	ScheduleCron string             `yaml:"scheduleCron,omitempty"`
+	Retention    int                `yaml:"retention,omitempty"`
+	Dir          string             `yaml:"dir,omitempty"`
+	Compress     bool               `yaml:"compress,omitempty"`
+	S3           *EtcdS3Config      `yaml:"s3,omitempty"`
+	Prune        *EtcdPruneConfig   `yaml:"prune,omitempty"`
+}
+
+type EtcdPruneConfig struct {
+	Enabled   bool   `yaml:"enabled,omitempty"`
+	Retention int    `yaml:"retention,omitempty"`
+	Name      string `yaml:"name,omitempty"`
 }
 
 type EtcdS3Config struct {
@@ -37,16 +44,20 @@ type EtcdS3Config struct {
 }
 
 type SecretsEncryptConfig struct {
-	Enabled bool `yaml:"enabled,omitempty"`
+	Enabled    bool `yaml:"enabled,omitempty"`
+	RotateKeys bool `yaml:"rotateKeys,omitempty"`
+	Reencrypt  bool `yaml:"reencrypt,omitempty"`
 }
 
 type CertRotateConfig struct {
-	Enabled bool `yaml:"enabled,omitempty"`
+	Enabled  bool `yaml:"enabled,omitempty"`
+	RotateCA bool `yaml:"rotateCA,omitempty"`
 }
 
 type TokenConfig struct {
 	AgentToken  string `yaml:"agentToken,omitempty"`
 	ServerToken string `yaml:"serverToken,omitempty"`
+	Rotate      bool   `yaml:"rotate,omitempty"`
 }
 
 type PreflightConfig struct {
@@ -63,17 +74,51 @@ type AirgapConfig struct {
 	ImageBundle string `yaml:"imageBundle,omitempty"`
 }
 
+type RegistriesConfig struct {
+	Mirrors map[string]RegistryMirror `yaml:"mirrors,omitempty"`
+	Configs map[string]RegistryAuth   `yaml:"configs,omitempty"`
+}
+
+type RegistryMirror struct {
+	Endpoint []string `yaml:"endpoint,omitempty"`
+}
+
+type RegistryAuth struct {
+	Auth *RegistryAuthConfig `yaml:"auth,omitempty"`
+	TLS  *RegistryTLSConfig  `yaml:"tls,omitempty"`
+}
+
+type RegistryAuthConfig struct {
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+}
+
+type RegistryTLSConfig struct {
+	CertFile           string `yaml:"certFile,omitempty"`
+	KeyFile            string `yaml:"keyFile,omitempty"`
+	CAFile             string `yaml:"caFile,omitempty"`
+	InsecureSkipVerify bool   `yaml:"insecureSkipVerify,omitempty"`
+}
+
+type HealthCheckConfig struct {
+	Enabled bool   `yaml:"enabled,omitempty"`
+	Timeout string `yaml:"timeout,omitempty"`
+}
+
 type K3s struct {
 	Version        string                `yaml:"version,omitempty"`
 	Config         dig.Mapping           `yaml:"config,omitempty"`
 	ExtraArgs      Flags                 `yaml:"extraArgs,omitempty"`
 	EtcdSnapshots  *EtcdSnapshotConfig   `yaml:"etcdSnapshots,omitempty"`
-	SecretsEncrypt *SecretsEncryptConfig `yaml:"secretsEncrypt,omitempty"`
-	CertRotate     *CertRotateConfig     `yaml:"certRotate,omitempty"`
-	Token          *TokenConfig          `yaml:"token,omitempty"`
-	Preflight      *PreflightConfig      `yaml:"preflight,omitempty"`
-	Airgap         *AirgapConfig         `yaml:"airgap,omitempty"`
-	VersionString  string                `yaml:"-"`
+	SecretsEncrypt *SecretsEncryptConfig  `yaml:"secretsEncrypt,omitempty"`
+	CertRotate     *CertRotateConfig      `yaml:"certRotate,omitempty"`
+	Token          *TokenConfig           `yaml:"token,omitempty"`
+	Preflight      *PreflightConfig       `yaml:"preflight,omitempty"`
+	Airgap         *AirgapConfig          `yaml:"airgap,omitempty"`
+	Registries     *RegistriesConfig      `yaml:"registries,omitempty"`
+	HealthCheck    *HealthCheckConfig     `yaml:"healthCheck,omitempty"`
+	VersionString  string                 `yaml:"-"`
 }
 
 func (k *K3s) SetDefaults() {
@@ -98,6 +143,21 @@ func (k *K3s) Validate() error {
 			if !fileExistsLocal(ag.ImageBundle) {
 				return fmt.Errorf("airgap.imageBundle: file not found: %s", ag.ImageBundle)
 			}
+		}
+	}
+	if se := k.SecretsEncrypt; se != nil {
+		if (se.RotateKeys || se.Reencrypt) && !se.Enabled {
+			return fmt.Errorf("secretsEncrypt.enabled must be true to use rotateKeys or reencrypt")
+		}
+	}
+	if cr := k.CertRotate; cr != nil {
+		if cr.RotateCA && !cr.Enabled {
+			return fmt.Errorf("certRotate.enabled must be true to use rotateCA")
+		}
+	}
+	if ep := k.EtcdSnapshots; ep != nil && ep.Prune != nil {
+		if ep.Prune.Enabled && ep.Prune.Retention <= 0 {
+			return fmt.Errorf("etcdSnapshots.prune.retention must be > 0 when pruning is enabled")
 		}
 	}
 	return nil
@@ -128,6 +188,7 @@ func (k *K3s) GenerateServerConfig(host *Host, clusterToken string, isInit bool,
 		config["flannel-backend"] = "none"
 	}
 
+	applyNodeLabelsAndTaints(config, host)
 	k.applyEtcdSnapshotConfig(config)
 	k.applySecretsEncryptConfig(config)
 	k.applyTokenConfig(config)
@@ -244,5 +305,20 @@ func (k *K3s) GenerateAgentConfig(host *Host, serverAddr, clusterToken string) (
 		config["node-ip"] = host.PrivateAddress
 	}
 
+	applyNodeLabelsAndTaints(config, host)
+
 	return yaml.Marshal(config)
+}
+
+func applyNodeLabelsAndTaints(config dig.Mapping, host *Host) {
+	if len(host.Labels) > 0 {
+		labels := make([]string, 0, len(host.Labels))
+		for k, v := range host.Labels {
+			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+		}
+		config["node-label"] = labels
+	}
+	if len(host.Taints) > 0 {
+		config["node-taint"] = host.Taints
+	}
 }
