@@ -348,18 +348,9 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl apply` | Install or update the cluster |
 | `k3sctl reset` | Remove K3s from the hosts |
 | `k3sctl kubeconfig` | Print the admin kubeconfig |
-| `k3sctl backup` | Create an etcd snapshot |
 | `k3sctl restore` | Restore cluster from an etcd snapshot |
-| `k3sctl config edit` | Edit the cluster configuration |
 | `k3sctl config diff` | Show differences between desired config and actual cluster state |
 | `k3sctl config validate` | Validate a cluster configuration file |
-| `k3sctl config status` | Show the current cluster status |
-| `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
-| `k3sctl etcd-snapshot list` | List etcd snapshots on servers |
-| `k3sctl etcd-snapshot delete` | Delete an etcd snapshot by name |
-| `k3sctl certificate check` | Check TLS certificate expiry dates |
-| `k3sctl token list` | List cluster join tokens |
-| `k3sctl node remove` | Remove a node from the cluster |
 | `k3sctl init` | Print a configuration template |
 | `k3sctl version` | Print version information |
 | `k3sctl completion` | Print shell completion script |
@@ -368,8 +359,12 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 `apply` additionally accepts `--dry-run`, `--no-wait`, `--no-drain`,
 `--restore-from`, `--kubeconfig-out`, `--concurrency`,
 `--concurrent-uploads` and `--disable-downgrade-check`.
-`node remove` accepts `--no-drain` and `--force` (to remove the leader).
 `restore` accepts `--from` (required snapshot path) and `--force` (skip confirmation).
+
+> **Note:** Operations like etcd snapshot management, certificate checking, token
+> listing, and node removal are available natively via `k3s` on the host. k3sctl
+> focuses on declarative cluster lifecycle — use the YAML config with `apply` for
+> state changes, and `k3s` CLI directly for ad-hoc queries.
 
 ## Roadmap
 
@@ -377,14 +372,9 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 
 - Declarative cluster apply (install, upgrade, idempotent re-run)
 - Rolling upgrades with drain/cordon for both servers and agents
-- etcd backup (`backup`) and restore (`restore`) with confirmation prompt
+- etcd restore (`restore`) with confirmation prompt
 - Configuration validation (`config validate`)
 - Configuration diff (`config diff`)
-- Deep cluster health checks (`config status --deep`)
-- etcd snapshot management (`etcd-snapshot list`, `etcd-snapshot delete`)
-- Certificate expiry checking (`certificate check`)
-- Token management (`token list`)
-- Node removal with drain (`node remove`)
 - Dry-run mode, kubeconfig export, shell completions
 - Air-gap install — upload image bundles for offline clusters
 - Multi-server HA — quorum-safe batched server joining, etcd member removal on reset, stale member detection
@@ -392,7 +382,7 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - Secrets encryption key rotation and re-encryption on apply
 - Certificate Authority rotation on apply
 - Cluster join token rotation on apply
-- Automated etcd snapshot pruning on apply
+- Automated etcd snapshot scheduling and pruning on apply
 - Post-apply cluster health verification
 
 ### Next
