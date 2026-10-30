@@ -8,8 +8,6 @@ func configCommand() *cli.Command {
 		Usage: "Configuration related sub-commands",
 		Subcommands: []*cli.Command{
 			configDiffCommand(),
-			configEditCommand(),
-			configStatusCommand(),
 			configValidateCommand(),
 		},
 	}

@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
 )
 
 // NodeStatus is the subset of a Kubernetes Node used by the assertions.
@@ -94,30 +92,6 @@ func VerifyVersion(output, want string) error {
 	return nil
 }
 
-// VerifyStatus checks that every host in `k3sctl config status` reports
-// "running". The table has a HOST, ROLE and STATUS column.
-func VerifyStatus(output string, nodes []environment.Node) error {
-	statuses := make(map[string]string)
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		statuses[fields[0]] = fields[2]
-	}
-
-	for _, node := range nodes {
-		status, ok := statuses[node.Name]
-		if !ok {
-			return fmt.Errorf("host %q missing from status output", node.Name)
-		}
-		if status != "running" {
-			return fmt.Errorf("host %q status is %q, want %q", node.Name, status, "running")
-		}
-	}
-	return nil
-}
-
 // VerifyKubeconfig checks that the kubeconfig points at the requested API
 // address.
 func VerifyKubeconfig(output, apiAddress string) error {
@@ -157,6 +131,46 @@ func VerifyEtcdMembers(output string, expected int) error {
 		return fmt.Errorf("etcd cluster has %d members, want %d; output:\n%s", count, expected, output)
 	}
 	return nil
+}
+
+// etcdMemberListResponse is the JSON response from the etcd v3 gRPC gateway
+// POST /v3/cluster/member/list endpoint.
+type etcdMemberListResponse struct {
+	Members []EtcdMember `json:"members"`
+}
+
+// EtcdMember represents a single etcd cluster member from the REST API.
+type EtcdMember struct {
+	ID       json.Number `json:"ID"`
+	Name     string      `json:"name"`
+	PeerURLs []string    `json:"peerURLs"`
+}
+
+// VerifyEtcdMembersFromAPI parses the JSON response from the etcd v3 REST API
+// and verifies that the cluster has exactly the expected number of members.
+func VerifyEtcdMembersFromAPI(jsonOutput string, expected int) error {
+	if strings.TrimSpace(jsonOutput) == "" {
+		return fmt.Errorf("etcd member list API response is empty")
+	}
+	var resp etcdMemberListResponse
+	if err := json.Unmarshal([]byte(jsonOutput), &resp); err != nil {
+		return fmt.Errorf("parse etcd member list response: %w (output: %.200s)", err, jsonOutput)
+	}
+	count := len(resp.Members)
+	if count != expected {
+		return fmt.Errorf("etcd cluster has %d members, want %d", count, expected)
+	}
+	return nil
+}
+
+// ParseEtcdMembersFromAPI parses the JSON response from the etcd v3 REST API
+// and returns the member list.
+func ParseEtcdMembersFromAPI(jsonOutput string) ([]EtcdMember, error) {
+	var resp etcdMemberListResponse
+	if err := json.Unmarshal([]byte(jsonOutput), &resp); err != nil {
+		return nil, fmt.Errorf("parse etcd member list response: %w", err)
+	}
+	return resp.Members, nil
 }
 
 func sortedNames(names map[string]struct{}) []string {

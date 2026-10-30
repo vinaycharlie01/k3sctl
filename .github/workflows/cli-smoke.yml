@@ -77,16 +77,17 @@ jobs:
           pass() { echo "PASS: $*"; }
 
           ./k3sctl --help > help.out
-          for cmd in version apply kubeconfig reset backup config init completion; do
+          for cmd in version apply kubeconfig reset restore config init completion; do
             grep -qE "^[[:space:]]+${cmd}[[:space:]]" help.out || fail "help is missing command: ${cmd}"
           done
           pass "all top-level commands listed in help"
 
-          for cmd in apply kubeconfig reset backup init version; do
+          for cmd in apply kubeconfig reset init version; do
             ./k3sctl "${cmd}" --help > /dev/null || fail "${cmd} --help failed"
           done
           ./k3sctl config --help > config-help.out
-          grep -q 'status' config-help.out || fail "config help is missing status subcommand"
+          grep -q 'diff' config-help.out || fail "config help is missing diff subcommand"
+          grep -q 'validate' config-help.out || fail "config help is missing validate subcommand"
           pass "subcommand help works offline"
 
       - name: Shell completion generates output

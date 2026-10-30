@@ -112,6 +112,7 @@ jobs:
         env:
           K3SCTL_BINARY: ${{ github.workspace }}/k3sctl
           K3SCTL_ARTIFACT_DIR: ${{ github.workspace }}/integration-artifacts/${{ env.K3SCTL_LXD_RUN_ID }}
+          SSH_KNOWN_HOSTS: /dev/null
         run: |
           set -euo pipefail
           mkdir -p test-results
@@ -125,6 +126,7 @@ jobs:
         env:
           K3SCTL_BINARY: ${{ github.workspace }}/k3sctl
           K3SCTL_ARTIFACT_DIR: ${{ github.workspace }}/integration-artifacts/${{ env.K3SCTL_LXD_RUN_ID }}-ha
+          SSH_KNOWN_HOSTS: /dev/null
         run: |
           set -euo pipefail
           mkdir -p test-results

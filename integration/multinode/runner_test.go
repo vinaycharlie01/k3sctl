@@ -28,8 +28,6 @@ const (
 {"metadata":{"name":"run-agent1"},"status":{"conditions":[{"type":"Ready","status":"False"}]}},
 {"metadata":{"name":"run-agent2"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
 ]}`
-
-	statusTable = "run-server\tserver\trunning\nrun-agent1\tagent\trunning\nrun-agent2\tagent\trunning\n"
 )
 
 func runnerNodes() []environment.Node {
@@ -83,8 +81,6 @@ func newRunnerFixture(t *testing.T) *runnerFixture {
 	f.commands = &mnodemocks.FakeCommandRunner{}
 	f.commands.RunStub = func(_ context.Context, _ string, _ string, args ...string) (multinode.Result, error) {
 		switch {
-		case len(args) >= 2 && args[0] == "config" && args[1] == "status":
-			return multinode.Result{Stdout: statusTable}, nil
 		case len(args) >= 1 && args[0] == "kubeconfig":
 			return multinode.Result{Stdout: "server: " + args[len(args)-1] + "\n"}, nil
 		default:
@@ -129,8 +125,8 @@ func TestRunnerRunInstallsAndVerifiesCluster(t *testing.T) {
 		t.Errorf("DestroyCallCount() = %d, want 1", got)
 	}
 
-	if got := f.commands.RunCallCount(); got != 4 {
-		t.Fatalf("RunCallCount() = %d, want 4 (apply, status, kubeconfig, reset)", got)
+	if got := f.commands.RunCallCount(); got != 3 {
+		t.Fatalf("RunCallCount() = %d, want 3 (apply, kubeconfig, reset)", got)
 	}
 
 	assertCommand := func(index int, wantArgs ...string) {
@@ -148,14 +144,12 @@ func TestRunnerRunInstallsAndVerifiesCluster(t *testing.T) {
 	}
 
 	assertCommand(0, "--debug", "apply", "-c", f.configPath)
-	assertCommand(1, "config", "status", "-c", f.configPath)
-	assertCommand(2, "kubeconfig", "-c", f.configPath, "--api-address", "https://10.0.0.10:6443")
-	assertCommand(3, "reset", "-c", f.configPath, "--force")
+	assertCommand(1, "kubeconfig", "-c", f.configPath, "--api-address", "https://10.0.0.10:6443")
+	assertCommand(2, "reset", "-c", f.configPath, "--force")
 
 	for _, name := range []string{
 		"k3sctl.yaml",
 		"apply.log",
-		"status.log",
 		"k3s-version.log",
 		"nodes.json",
 		"kubeconfig.yaml",

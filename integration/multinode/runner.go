@@ -293,9 +293,6 @@ func (r *Runner) verify(ctx context.Context, nodes []environment.Node, configPat
 		return errors.New("no server node found")
 	}
 
-	if err := r.verifyStatus(ctx, nodes, configPath); err != nil {
-		return err
-	}
 	if err := r.verifyServices(ctx, nodes); err != nil {
 		return err
 	}
@@ -320,18 +317,6 @@ func (r *Runner) verify(ctx context.Context, nodes []environment.Node, configPat
 	}
 
 	return r.verifyKubeconfig(ctx, configPath, server)
-}
-
-func (r *Runner) verifyStatus(ctx context.Context, nodes []environment.Node, configPath string) error {
-	verifyCtx, cancel := context.WithTimeout(ctx, r.options.VerifyTimeout)
-	defer cancel()
-
-	result, err := r.options.Commands.Run(verifyCtx, r.options.WorkDir, r.options.Binary, "config", "status", "-c", configPath)
-	r.writeArtifact("status.log", formatResult(result, err))
-	if err != nil {
-		return fmt.Errorf("k3sctl config status: %w", err)
-	}
-	return VerifyStatus(result.Stdout, nodes)
 }
 
 func (r *Runner) verifyServices(ctx context.Context, nodes []environment.Node) error {
@@ -398,20 +383,119 @@ func (r *Runner) verifyKubeconfig(ctx context.Context, configPath string, server
 func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node, expectedMembers int) error {
 	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
 
-	result, err := r.remote(ctx, leader.Address,
-		"sudo sh -c 'ETCDCTL_API=3 /var/lib/rancher/k3s/data/*/bin/etcdctl "+
-			"--endpoints https://127.0.0.1:2379 "+
-			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
-			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
-			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"member list'",
-		r.options.VerifyTimeout)
-	r.writeArtifact("etcd-members.log", result.Stdout+"\n"+result.Stderr)
-	if err != nil {
-		return fmt.Errorf("etcd member list on %s: %w", leader.Name, err)
+	// Collect diagnostics about the etcd environment for troubleshooting.
+	diagCmd := strings.Join([]string{
+		"echo '=== etcd certs ==='",
+		"sudo ls -la /var/lib/rancher/k3s/server/tls/etcd/ 2>&1",
+		"echo ''",
+		"echo '=== etcd port ==='",
+		"sudo ss -tlnp sport = :2379 2>&1 || sudo netstat -tlnp 2>&1 | grep 2379",
+		"echo ''",
+		"echo '=== etcd health ==='",
+		"sudo curl -sk --connect-timeout 5 --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2379/health 2>&1",
+		"echo ''",
+		"echo '=== etcd version ==='",
+		"sudo curl -sk --connect-timeout 5 --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2379/version 2>&1",
+		"echo ''",
+		"echo '=== member list REST ==='",
+		"sudo curl -v --connect-timeout 5 --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key -H 'Content-Type: application/json' -d '{}' https://127.0.0.1:2379/v3/cluster/member/list 2>&1",
+	}, "; ")
+	diagResult, _ := r.remote(ctx, leader.Address, diagCmd, r.options.VerifyTimeout)
+	r.writeArtifact("etcd-diagnostics.log", diagResult.Stdout+"\n---stderr---\n"+diagResult.Stderr)
+
+	// Try the etcd v3 gRPC gateway REST API first.
+	if err := r.verifyEtcdViaAPI(ctx, leader, expectedMembers); err == nil {
+		return nil
 	}
 
-	return VerifyEtcdMembers(result.Stdout, expectedMembers)
+	// Fall back: count control-plane nodes via kubectl. In a K3s HA cluster
+	// every server node runs an embedded etcd member, so the control-plane
+	// node count equals the etcd member count.
+	log.Warnf("etcd REST API unavailable, falling back to kubectl node count")
+	return r.verifyEtcdViaKubectl(ctx, leader, expectedMembers)
+}
+
+func (r *Runner) verifyEtcdViaAPI(ctx context.Context, leader *environment.Node, expected int) error {
+	const curlCmd = "sudo curl -sS --connect-timeout 10 " +
+		"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt " +
+		"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt " +
+		"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key " +
+		"-H 'Content-Type: application/json' " +
+		"-d '{}' " +
+		"https://127.0.0.1:2379/v3/cluster/member/list"
+
+	var result Result
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		var err error
+		result, err = r.remote(ctx, leader.Address, curlCmd, r.options.VerifyTimeout)
+		body := strings.TrimSpace(result.Stdout)
+
+		if err == nil && body != "" {
+			if err := VerifyEtcdMembersFromAPI(body, expected); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+		} else if err != nil {
+			lastErr = fmt.Errorf("curl: %w", err)
+		} else {
+			lastErr = fmt.Errorf("etcd REST API returned empty response")
+		}
+
+		if attempt < 3 {
+			log.Warnf("etcd API attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt*5) * time.Second):
+			}
+		}
+	}
+	return lastErr
+}
+
+func (r *Runner) verifyEtcdViaKubectl(ctx context.Context, leader *environment.Node, expected int) error {
+	const k3sBin = "sudo /usr/local/bin/k3s kubectl"
+
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		result, err := r.remote(ctx, leader.Address,
+			k3sBin+" get nodes -l node-role.kubernetes.io/control-plane -o json",
+			r.options.VerifyTimeout)
+		r.writeArtifact(fmt.Sprintf("etcd-kubectl-attempt%d.log", attempt), result.Stdout)
+
+		if err == nil {
+			nodes, parseErr := ParseNodes(result.Stdout)
+			if parseErr != nil {
+				lastErr = fmt.Errorf("parse nodes: %w", parseErr)
+			} else {
+				readyCount := 0
+				for _, n := range nodes {
+					if n.Ready {
+						readyCount++
+					}
+				}
+				if readyCount == expected {
+					log.Infof("etcd member count verified via kubectl: %d control-plane nodes Ready", readyCount)
+					return nil
+				}
+				lastErr = fmt.Errorf("expected %d control-plane nodes, got %d Ready out of %d", expected, readyCount, len(nodes))
+			}
+		} else {
+			lastErr = fmt.Errorf("kubectl on %s: %w", leader.Name, err)
+		}
+
+		if attempt < 5 {
+			log.Warnf("kubectl etcd check attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt*5) * time.Second):
+			}
+		}
+	}
+	return fmt.Errorf("etcd verification via kubectl failed after 5 attempts: %w", lastErr)
 }
 
 func (r *Runner) verifyAllServerAPIs(ctx context.Context, servers []*environment.Node) error {

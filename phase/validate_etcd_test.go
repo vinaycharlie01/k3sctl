@@ -1,6 +1,7 @@
 package phase
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/protocol/ssh"
@@ -56,10 +57,12 @@ func TestValidateEtcdMembers_ShouldRun(t *testing.T) {
 	})
 }
 
-func TestFindStaleMembers(t *testing.T) {
-	memberList := `8e9e05c52164694d, started, server-1, https://10.0.0.1:2380, https://10.0.0.1:2379, false
-3a1b2c3d4e5f6a7b, started, server-2, https://10.0.0.2:2380, https://10.0.0.2:2379, false
-a1b2c3d4e5f6a7b8, started, server-old, https://10.0.0.99:2380, https://10.0.0.99:2379, false`
+func TestFindStaleMembersFromAPI(t *testing.T) {
+	members := []etcdAPIMember{
+		{ID: json.Number("8e9e05c52164694d"), Name: "server-1", PeerURLs: []string{"https://10.0.0.1:2380"}},
+		{ID: json.Number("3a1b2c3d4e5f6a7b"), Name: "server-2", PeerURLs: []string{"https://10.0.0.2:2380"}},
+		{ID: json.Number("a1b2c3d4e5f6a7b8"), Name: "server-old", PeerURLs: []string{"https://10.0.0.99:2380"}},
+	}
 
 	known := map[string]bool{
 		"10.0.0.1": true,
@@ -67,7 +70,7 @@ a1b2c3d4e5f6a7b8, started, server-old, https://10.0.0.99:2380, https://10.0.0.99
 	}
 
 	t.Run("detects stale member", func(t *testing.T) {
-		stale := findStaleMembers(memberList, known)
+		stale := findStaleMembersFromAPI(members, known)
 		assert.Len(t, stale, 1)
 		assert.Equal(t, "a1b2c3d4e5f6a7b8", stale[0].id)
 		assert.Contains(t, stale[0].peerURL, "10.0.0.99")
@@ -79,18 +82,21 @@ a1b2c3d4e5f6a7b8, started, server-old, https://10.0.0.99:2380, https://10.0.0.99
 			"10.0.0.2":  true,
 			"10.0.0.99": true,
 		}
-		stale := findStaleMembers(memberList, allKnown)
+		stale := findStaleMembersFromAPI(members, allKnown)
 		assert.Empty(t, stale)
 	})
 
-	t.Run("empty output", func(t *testing.T) {
-		stale := findStaleMembers("", known)
+	t.Run("empty members", func(t *testing.T) {
+		stale := findStaleMembersFromAPI(nil, known)
 		assert.Empty(t, stale)
 	})
 
-	t.Run("malformed lines skipped", func(t *testing.T) {
-		stale := findStaleMembers("garbage\nmore garbage", known)
-		assert.Empty(t, stale)
+	t.Run("member with no peer URLs", func(t *testing.T) {
+		noPeers := []etcdAPIMember{
+			{ID: json.Number("123"), Name: "orphan", PeerURLs: nil},
+		}
+		stale := findStaleMembersFromAPI(noPeers, known)
+		assert.Len(t, stale, 1)
 	})
 }
 

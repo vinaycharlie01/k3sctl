@@ -24,6 +24,12 @@ back up and reset the cluster over SSH.
 - Configuration diff (`config diff`) — preview what `apply` would change
 - Air-gap install — upload pre-downloaded image bundles for offline clusters
 - Dry-run mode (`--dry-run`)
+- Private registry mirrors and authentication (`registries`)
+- Secrets encryption key rotation and re-encryption (`secretsEncrypt`)
+- Certificate Authority rotation (`certRotate.rotateCA`)
+- Cluster join token rotation (`token.rotate`)
+- Automated etcd snapshot pruning (`etcdSnapshots.prune`)
+- Post-apply cluster health verification (`healthCheck`)
 
 Linux hosts only.
 
@@ -131,16 +137,42 @@ spec:
         folder: snapshots
         accessKey: AKIAIOSFODNN7EXAMPLE
         secretKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      prune:                           # prune old snapshots on apply
+        enabled: true
+        retention: 10
+        name: on-demand
 
-    secretsEncrypt:                    # enable secrets encryption at rest
+    secretsEncrypt:                    # secrets encryption at rest
       enabled: true
+      rotateKeys: true                 # dynamically rotate encryption keys
+      reencrypt: true                  # re-encrypt all secrets with new keys
 
-    certRotate:                        # rotate K3s TLS certificates on apply
+    certRotate:                        # certificate rotation on apply
       enabled: true
+      rotateCA: true                   # rotate the root CA (full cluster restart)
 
-    token:                             # explicit cluster tokens
+    token:                             # cluster tokens
       serverToken: my-server-secret
       agentToken: my-agent-secret
+      rotate: true                     # rotate token and restart all nodes
+
+    registries:                        # private registry configuration
+      mirrors:
+        docker.io:
+          endpoint:
+            - https://registry.example.com
+      configs:
+        registry.example.com:
+          auth:
+            username: myuser
+            password: mypass
+          tls:
+            caFile: /path/to/ca.pem
+            insecureSkipVerify: false
+
+    healthCheck:                       # post-apply health verification
+      enabled: true
+      timeout: 120s
 
     preflight:                         # pre-flight checks before apply
       enabled: true
@@ -189,9 +221,11 @@ spec:
 | `config` | Key-value map merged into each host's K3s `config.yaml` |
 | `extraArgs` | Extra flags appended to the `k3s server`/`k3s agent` command |
 | `etcdSnapshots` | Automated etcd snapshot configuration (see below) |
-| `secretsEncrypt` | Enable K3s secrets encryption at rest |
-| `certRotate` | Rotate TLS certificates on every `apply` |
-| `token` | Set explicit server and agent join tokens |
+| `secretsEncrypt` | Secrets encryption at rest with key rotation and re-encryption |
+| `certRotate` | Rotate TLS certificates and optionally the root CA on every `apply` |
+| `token` | Set explicit server/agent join tokens and optionally rotate them |
+| `registries` | Private registry mirrors and authentication configuration |
+| `healthCheck` | Post-apply cluster health verification |
 | `preflight` | Pre-flight checks run before apply |
 | `airgap` | Air-gap (offline) installation settings |
 
@@ -220,12 +254,15 @@ spec:
 | Key | Description |
 |---|---|
 | `enabled` | Enable K3s secrets encryption at rest (`--secrets-encryption`) |
+| `rotateKeys` | Dynamically rotate encryption keys (`k3s secrets-encrypt rotate-keys`) |
+| `reencrypt` | Re-encrypt all secrets with new keys (full prepare → rotate → reencrypt cycle) |
 
 #### `certRotate`
 
 | Key | Description |
 |---|---|
 | `enabled` | Run `k3s certificate rotate --force` on each server during `apply` and restart K3s |
+| `rotateCA` | Rotate the root Certificate Authority (`k3s certificate rotate-ca --force`); triggers a full cluster restart |
 
 #### `token`
 
@@ -233,6 +270,7 @@ spec:
 |---|---|
 | `serverToken` | Token used for server-to-server communication (`--token`) |
 | `agentToken` | Token used for agent-to-server communication (`--agent-token`) |
+| `rotate` | Rotate the cluster join token and restart all nodes |
 
 #### `preflight`
 
@@ -251,6 +289,38 @@ spec:
 |---|---|
 | `enabled` | Enable air-gap mode (skip downloading K3s images from the internet) |
 | `imageBundle` | Local path to a K3s air-gap image bundle (e.g. `k3s-airgap-images-amd64.tar.zst`); uploaded to `<dataDir>/agent/images/` on every host |
+
+#### `etcdSnapshots.prune`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable pruning of old etcd snapshots on apply |
+| `retention` | Number of snapshots to retain (required when enabled, must be > 0) |
+| `name` | Snapshot name filter for pruning (e.g. `on-demand`) |
+
+#### `registries`
+
+| Key | Description |
+|---|---|
+| `mirrors.<registry>.endpoint` | List of mirror endpoint URLs for the given registry |
+| `configs.<registry>.auth.username` | Registry authentication username |
+| `configs.<registry>.auth.password` | Registry authentication password |
+| `configs.<registry>.auth.token` | Registry authentication token |
+| `configs.<registry>.tls.certFile` | Path to client TLS certificate |
+| `configs.<registry>.tls.keyFile` | Path to client TLS key |
+| `configs.<registry>.tls.caFile` | Path to CA certificate for the registry |
+| `configs.<registry>.tls.insecureSkipVerify` | Skip TLS verification for the registry |
+
+The registries configuration is written to `/etc/rancher/k3s/registries.yaml` on all nodes during apply.
+
+#### `healthCheck`
+
+| Key | Description |
+|---|---|
+| `enabled` | Enable post-apply cluster health verification |
+| `timeout` | Maximum wait time for health checks (default: `2m`; e.g. `120s`, `5m`) |
+
+When enabled, the health check verifies the API server responds to `/healthz` and all nodes reach `Ready` status before completing the apply.
 
 ### Additional manifests
 
@@ -278,18 +348,9 @@ Each document must be a valid Kubernetes manifest. Documents are passed to
 | `k3sctl apply` | Install or update the cluster |
 | `k3sctl reset` | Remove K3s from the hosts |
 | `k3sctl kubeconfig` | Print the admin kubeconfig |
-| `k3sctl backup` | Create an etcd snapshot |
 | `k3sctl restore` | Restore cluster from an etcd snapshot |
-| `k3sctl config edit` | Edit the cluster configuration |
 | `k3sctl config diff` | Show differences between desired config and actual cluster state |
 | `k3sctl config validate` | Validate a cluster configuration file |
-| `k3sctl config status` | Show the current cluster status |
-| `k3sctl config status --deep` | Deep health check (API server, etcd, scheduler, node readiness) |
-| `k3sctl etcd-snapshot list` | List etcd snapshots on servers |
-| `k3sctl etcd-snapshot delete` | Delete an etcd snapshot by name |
-| `k3sctl certificate check` | Check TLS certificate expiry dates |
-| `k3sctl token list` | List cluster join tokens |
-| `k3sctl node remove` | Remove a node from the cluster |
 | `k3sctl init` | Print a configuration template |
 | `k3sctl version` | Print version information |
 | `k3sctl completion` | Print shell completion script |
@@ -298,8 +359,12 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 `apply` additionally accepts `--dry-run`, `--no-wait`, `--no-drain`,
 `--restore-from`, `--kubeconfig-out`, `--concurrency`,
 `--concurrent-uploads` and `--disable-downgrade-check`.
-`node remove` accepts `--no-drain` and `--force` (to remove the leader).
 `restore` accepts `--from` (required snapshot path) and `--force` (skip confirmation).
+
+> **Note:** Operations like etcd snapshot management, certificate checking, token
+> listing, and node removal are available natively via `k3s` on the host. k3sctl
+> focuses on declarative cluster lifecycle — use the YAML config with `apply` for
+> state changes, and `k3s` CLI directly for ad-hoc queries.
 
 ## Roadmap
 
@@ -307,22 +372,22 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 
 - Declarative cluster apply (install, upgrade, idempotent re-run)
 - Rolling upgrades with drain/cordon for both servers and agents
-- etcd backup (`backup`) and restore (`restore`) with confirmation prompt
+- etcd restore (`restore`) with confirmation prompt
 - Configuration validation (`config validate`)
 - Configuration diff (`config diff`)
-- Deep cluster health checks (`config status --deep`)
-- etcd snapshot management (`etcd-snapshot list`, `etcd-snapshot delete`)
-- Certificate expiry checking (`certificate check`)
-- Token management (`token list`)
-- Node removal with drain (`node remove`)
 - Dry-run mode, kubeconfig export, shell completions
 - Air-gap install — upload image bundles for offline clusters
 - Multi-server HA — quorum-safe batched server joining, etcd member removal on reset, stale member detection
+- Private registry mirrors and authentication configuration
+- Secrets encryption key rotation and re-encryption on apply
+- Certificate Authority rotation on apply
+- Cluster join token rotation on apply
+- Automated etcd snapshot scheduling and pruning on apply
+- Post-apply cluster health verification
 
 ### Next
 
 - **Cluster import**: adopt an existing K3s cluster into k3sctl management
-- **Registry mirror config**: first-class support for private registry mirrors
 - **Plugin system**: hooks for custom pre/post-apply logic
 
 ## Development

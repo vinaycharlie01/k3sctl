@@ -40,7 +40,9 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.InstallBinaries{},
 		&phase.PrepareArm{},
 		&phase.ConfigureK3s{},
+		&phase.ConfigureRegistries{},
 		&phase.CertRotate{},
+		&phase.CertRotateCA{},
 		&phase.Restore{RestoreFrom: opts.RestoreFrom},
 		&phase.RunHooks{Action: "apply", Stage: "before"},
 		&phase.InitializeK3s{},
@@ -54,6 +56,10 @@ func Apply(opts ApplyOptions) *phase.Manager {
 		&phase.ResetServers{NoDrain: opts.NoDrain},
 		&phase.RunHooks{Action: "apply", Stage: "after"},
 		&phase.ApplyManifests{},
+		&phase.SecretsEncryptManage{},
+		&phase.TokenRotate{},
+		&phase.EtcdSnapshotPrune{},
+		&phase.PostApplyHealthCheck{},
 	)
 
 	if opts.KubeconfigOut != nil {
