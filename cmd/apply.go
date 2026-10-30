@@ -5,7 +5,8 @@ import (
 	"io"
 	"os"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/action"
 )
@@ -96,10 +97,10 @@ func applyCommand() *cli.Command {
 				return err
 			}
 
-			log.Info("==> Apply complete")
+			slog.Info("==> Apply complete")
 
 			if kubeconfigOut == nil {
-				log.Info("To get the kubeconfig, run: k3sctl kubeconfig")
+				slog.Info("To get the kubeconfig, run: k3sctl kubeconfig")
 			}
 
 			return nil

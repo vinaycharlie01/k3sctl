@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -33,14 +34,14 @@ func (p *CertRotateCA) Run(ctx context.Context) error {
 		return fmt.Errorf("leader server not available for CA rotation")
 	}
 
-	log.Infof("%s: initiating CA certificate rotation", h)
+	slog.Info(fmt.Sprintf("%s: initiating CA certificate rotation", h))
 
 	cmd := h.Configurer.K3sCmdf("certificate rotate-ca --force")
 	if err := h.Sudo().Exec(cmd); err != nil {
 		return fmt.Errorf("%s: CA certificate rotation failed: %w", h, err)
 	}
 
-	log.Infof("%s: restarting k3s service after CA rotation", h)
+	slog.Info(fmt.Sprintf("%s: restarting k3s service after CA rotation", h))
 	svc, err := h.Sudo().Service(h.K3sServiceName())
 	if err != nil {
 		return fmt.Errorf("%s: find service: %w", h, err)
@@ -51,13 +52,13 @@ func (p *CertRotateCA) Run(ctx context.Context) error {
 
 	time.Sleep(15 * time.Second)
 
-	log.Infof("%s: restarting all other servers for CA propagation", h)
+	slog.Info(fmt.Sprintf("%s: restarting all other servers for CA propagation", h))
 	servers := p.Config.Spec.Hosts.Servers()
 	if err := p.parallelDo(ctx, servers, func(ctx context.Context, s *cluster.Host) error {
 		if s == h || !s.Metadata.K3sServiceRunning {
 			return nil
 		}
-		log.Infof("%s: restarting for CA propagation", s)
+		slog.Info(fmt.Sprintf("%s: restarting for CA propagation", s))
 		svc, err := s.Sudo().Service(s.K3sServiceName())
 		if err != nil {
 			return fmt.Errorf("%s: find service: %w", s, err)
@@ -72,13 +73,13 @@ func (p *CertRotateCA) Run(ctx context.Context) error {
 
 	time.Sleep(10 * time.Second)
 
-	log.Infof("%s: restarting all agents for CA propagation", h)
+	slog.Info(fmt.Sprintf("%s: restarting all agents for CA propagation", h))
 	agents := p.Config.Spec.Hosts.Agents()
 	if err := p.parallelDo(ctx, agents, func(ctx context.Context, a *cluster.Host) error {
 		if !a.Metadata.K3sServiceRunning {
 			return nil
 		}
-		log.Infof("%s: restarting for CA propagation", a)
+		slog.Info(fmt.Sprintf("%s: restarting for CA propagation", a))
 		svc, err := a.Sudo().Service(a.K3sServiceName())
 		if err != nil {
 			return fmt.Errorf("%s: find service: %w", a, err)
@@ -91,6 +92,6 @@ func (p *CertRotateCA) Run(ctx context.Context) error {
 		return err
 	}
 
-	log.Infof("%s: CA certificate rotation complete", h)
+	slog.Info(fmt.Sprintf("%s: CA certificate rotation complete", h))
 	return nil
 }

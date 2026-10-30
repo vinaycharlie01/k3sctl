@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
@@ -24,7 +25,7 @@ func (p *GenericPhase) SetManager(m *Manager) {
 
 func (p *GenericPhase) Wet(host fmt.Stringer, dryMsg string, fns ...func() error) error {
 	if p.Manager != nil && p.Manager.DryRun {
-		log.Infof("%s: %s", host, dryMsg)
+		slog.Info(fmt.Sprintf("%s: %s", host, dryMsg))
 		return nil
 	}
 	for _, fn := range fns {
@@ -37,7 +38,7 @@ func (p *GenericPhase) Wet(host fmt.Stringer, dryMsg string, fns ...func() error
 
 func (p *GenericPhase) DryMsg(host fmt.Stringer, msg string) {
 	if p.Manager != nil && p.Manager.DryRun {
-		log.Infof("%s: %s", host, msg)
+		slog.Info(fmt.Sprintf("%s: %s", host, msg))
 	}
 }
 

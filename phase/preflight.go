@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -78,12 +79,12 @@ func (p *Preflight) Run(ctx context.Context) error {
 
 		if len(warnings) > 0 {
 			for _, w := range warnings {
-				log.Warnf("%s: preflight: %s", h, w)
+				slog.Warn(fmt.Sprintf("%s: preflight: %s", h, w))
 			}
 			return fmt.Errorf("%s: %d preflight warning(s)", h, len(warnings))
 		}
 
-		log.Infof("%s: preflight checks passed", h)
+		slog.Info(fmt.Sprintf("%s: preflight checks passed", h))
 		return nil
 	})
 }

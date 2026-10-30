@@ -9,7 +9,6 @@ require (
 	github.com/carlmjohnson/versioninfo v0.22.5
 	github.com/k0sproject/dig v0.2.0
 	github.com/k0sproject/rig/v2 v2.0.0-alpha.2
-	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	golang.org/x/crypto v0.26.0
@@ -50,6 +49,7 @@ require (
 	github.com/pkg/xattr v0.4.9 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/zitadel/oidc/v2 v2.12.0 // indirect

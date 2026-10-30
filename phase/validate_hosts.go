@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/configurer"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
@@ -54,7 +55,7 @@ func (p *ValidateHosts) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: failed to check sudo access: %w", h, err)
 		}
 		if strings.TrimSpace(output) != "0" {
-			log.Warnf("%s: sudo user is not root (uid: %s), some operations may fail", h, strings.TrimSpace(output))
+			slog.Warn(fmt.Sprintf("%s: sudo user is not root (uid: %s), some operations may fail", h, strings.TrimSpace(output)))
 		}
 	}
 
@@ -62,7 +63,7 @@ func (p *ValidateHosts) Run(ctx context.Context) error {
 }
 
 func (p *ValidateHosts) validateClockSkew(ctx context.Context, hosts cluster.Hosts) error {
-	log.Infof("validating clock skew")
+	slog.Info("validating clock skew")
 
 	type hostSkew struct {
 		host *cluster.Host
@@ -76,12 +77,12 @@ func (p *ValidateHosts) validateClockSkew(ctx context.Context, hosts cluster.Hos
 	err := p.parallelDo(ctx, hosts, func(_ context.Context, h *cluster.Host) error {
 		output, err := h.ExecOutput("date +%s")
 		if err != nil {
-			log.Warnf("%s: failed to check clock: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: failed to check clock: %v", h, err))
 			return nil
 		}
 		secs, err := strconv.ParseInt(strings.TrimSpace(output), 10, 64)
 		if err != nil {
-			log.Warnf("%s: failed to parse remote time %q: %v", h, output, err)
+			slog.Warn(fmt.Sprintf("%s: failed to parse remote time %q: %v", h, output, err))
 			return nil
 		}
 
@@ -103,7 +104,7 @@ func (p *ValidateHosts) validateClockSkew(ctx context.Context, hosts cluster.Hos
 	var exceeded int
 	for i, hs := range skews {
 		if deviations[i] > maxClockSkew {
-			log.Errorf("%s: clock skew of %.0f seconds exceeds the maximum of %.0f seconds", hs.host, deviations[i].Seconds(), maxClockSkew.Seconds())
+			slog.Error(fmt.Sprintf("%s: clock skew of %.0f seconds exceeds the maximum of %.0f seconds", hs.host, deviations[i].Seconds(), maxClockSkew.Seconds()))
 			exceeded++
 		}
 	}

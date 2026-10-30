@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"log/slog"
+
 	"github.com/k0sproject/rig/v2/remotefs"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -44,7 +45,7 @@ func (p *UploadFiles) Run(ctx context.Context) error {
 				}
 
 				dstDir := filepath.Dir(dst)
-				log.Infof("%s: uploading %s to %s", h, f.Source, dst)
+				slog.Info(fmt.Sprintf("%s: uploading %s to %s", h, f.Source, dst))
 
 				if err := h.Sudo().Exec(fmt.Sprintf("mkdir -p %s", shellQuote(dstDir))); err != nil {
 					return fmt.Errorf("%s: create dir %s: %w", h, dstDir, err)
@@ -76,7 +77,7 @@ func (p *UploadFiles) Run(ctx context.Context) error {
 					}
 				}
 
-				log.Infof("%s: uploaded %s to %s", h, f.Source, dst)
+				slog.Info(fmt.Sprintf("%s: uploaded %s to %s", h, f.Source, dst))
 			}
 		}
 		return nil

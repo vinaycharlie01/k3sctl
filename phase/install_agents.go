@@ -6,7 +6,8 @@ import (
 	"io/fs"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -40,7 +41,7 @@ func (p *InstallAgents) Run(ctx context.Context) error {
 }
 
 func (p *InstallAgents) installAgent(ctx context.Context, h *cluster.Host) error {
-	log.Infof("%s: installing K3s agent", h)
+	slog.Info(fmt.Sprintf("%s: installing K3s agent", h))
 
 	installFlags := h.K3sInstallFlags()
 	unitContent := k3sAgentUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
@@ -67,7 +68,7 @@ func (p *InstallAgents) installAgent(ctx context.Context, h *cluster.Host) error
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
-	log.Infof("%s: waiting for agent node to be ready", h)
+	slog.Info(fmt.Sprintf("%s: waiting for agent node to be ready", h))
 	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for agent ready: %w", h, err)
@@ -76,7 +77,7 @@ func (p *InstallAgents) installAgent(ctx context.Context, h *cluster.Host) error
 	h.Metadata.K3sServiceRunning = true
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
 	h.Metadata.NeedsUpgrade = false
-	log.Infof("%s: K3s agent installed and running", h)
+	slog.Info(fmt.Sprintf("%s: K3s agent installed and running", h))
 
 	return nil
 }

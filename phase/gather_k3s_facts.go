@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -27,7 +28,7 @@ func (p *GatherK3sFacts) Run(ctx context.Context) error {
 				ver := parseK3sVersion(output)
 				if ver != "" {
 					h.Metadata.K3sInstalledVersion = ver
-					log.Infof("%s: installed k3s version: %s", h, ver)
+					slog.Info(fmt.Sprintf("%s: installed k3s version: %s", h, ver))
 				}
 			}
 		}
@@ -45,7 +46,7 @@ func (p *GatherK3sFacts) Run(ctx context.Context) error {
 			if svc, err := h.Sudo().Service(serviceName); err == nil && svc.IsRunning(ctx) {
 				h.Metadata.K3sServiceRunning = true
 				h.Metadata.K3sRunningVersion = h.Metadata.K3sInstalledVersion
-				log.Infof("%s: k3s service %s is running", h, serviceName)
+				slog.Info(fmt.Sprintf("%s: k3s service %s is running", h, serviceName))
 			}
 		}
 
@@ -62,7 +63,7 @@ func (p *GatherK3sFacts) Run(ctx context.Context) error {
 			output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s 2>/dev/null", shellQuote(tokenPath)))
 			if err == nil && strings.TrimSpace(output) != "" {
 				h.Metadata.NodeToken = strings.TrimSpace(output)
-				log.Debugf("%s: found node token", h)
+				slog.Debug(fmt.Sprintf("%s: found node token", h))
 			}
 		}
 

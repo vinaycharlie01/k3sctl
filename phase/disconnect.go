@@ -3,7 +3,8 @@ package phase
 import (
 	"context"
 
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"log/slog"
 )
 
 type Disconnect struct {
@@ -16,7 +17,7 @@ func (p *Disconnect) Title() string {
 
 func (p *Disconnect) Run(_ context.Context) error {
 	for _, h := range p.Config.Spec.Hosts {
-		log.Infof("%s: disconnecting", h)
+		slog.Info(fmt.Sprintf("%s: disconnecting", h))
 		h.Disconnect()
 	}
 	return nil

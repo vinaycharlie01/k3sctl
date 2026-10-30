@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -42,20 +43,20 @@ func (p *ResetServers) Run(ctx context.Context) error {
 }
 
 func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
-	log.Infof("%s: resetting K3s server", h)
+	slog.Info(fmt.Sprintf("%s: resetting K3s server", h))
 
 	if !p.NoDrain && p.leader != nil {
 		if err := h.CordonNode(p.leader); err != nil {
-			log.Warnf("%s: cordon failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
 		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
-			log.Warnf("%s: drain failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 	}
 
 	if !p.NoDelete && p.leader != nil {
 		if err := h.DeleteNode(p.leader); err != nil {
-			log.Warnf("%s: delete node failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: delete node failed: %v", h, err))
 		}
 	}
 
@@ -66,39 +67,39 @@ func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
 	svc, err := h.Sudo().Service(h.K3sServiceName())
 	if err == nil {
 		if err := svc.Stop(ctx); err != nil {
-			log.Warnf("%s: stop service failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: stop service failed: %v", h, err))
 		}
 	}
 
 	if err := h.Sudo().Exec(fmt.Sprintf("rm -rf %s", shellQuote(h.K3sDataDir()))); err != nil {
-		log.Warnf("%s: remove data dir failed: %v", h, err)
+		slog.Warn(fmt.Sprintf("%s: remove data dir failed: %v", h, err))
 	}
 
 	configPath := h.Configurer.K3sConfigPath()
 	if h.Sudo().FS().FileExist(configPath) {
 		if err := h.Sudo().FS().Remove(configPath); err != nil {
-			log.Warnf("%s: remove config failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: remove config failed: %v", h, err))
 		}
 	}
 
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", h.K3sServiceName())
 	if h.Sudo().FS().FileExist(unitPath) {
 		if err := h.Sudo().Exec(fmt.Sprintf("systemctl disable %s", h.K3sServiceName())); err != nil {
-			log.Warnf("%s: disable service failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: disable service failed: %v", h, err))
 		}
 		if err := h.Sudo().FS().Remove(unitPath); err != nil {
-			log.Warnf("%s: remove service unit failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: remove service unit failed: %v", h, err))
 		}
 	}
 
 	binaryPath := h.Configurer.K3sBinaryPath()
 	if h.Sudo().FS().FileExist(binaryPath) {
 		if err := h.Sudo().FS().Remove(binaryPath); err != nil {
-			log.Warnf("%s: remove binary failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: remove binary failed: %v", h, err))
 		}
 	}
 
-	log.Infof("%s: K3s server reset complete", h)
+	slog.Info(fmt.Sprintf("%s: K3s server reset complete", h))
 	return nil
 }
 
@@ -107,7 +108,7 @@ func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
 // identify the member by node name and then call `k3s etcd-snapshot` tooling
 // to trigger member removal. If the member is already gone, this is a no-op.
 func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
-	log.Infof("%s: removing etcd member via leader", h)
+	slog.Info(fmt.Sprintf("%s: removing etcd member via leader", h))
 
 	peerAddr := h.PrivateAddress
 	if peerAddr == "" {
@@ -118,7 +119,7 @@ func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
 		fmt.Sprintf("%s etcd-snapshot list 2>&1 || true", shellQuote(p.leader.K3sBinaryDir())),
 	)
 	if err != nil || strings.Contains(output, "connection refused") {
-		log.Warnf("%s: etcd not reachable on leader, skipping member removal: %v", h, err)
+		slog.Warn(fmt.Sprintf("%s: etcd not reachable on leader, skipping member removal: %v", h, err))
 		return
 	}
 
@@ -133,13 +134,13 @@ func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
 
 	memberOutput, err := p.leader.Sudo().ExecOutput(memberListCmd)
 	if err != nil {
-		log.Warnf("%s: could not list etcd members: %v", h, err)
+		slog.Warn(fmt.Sprintf("%s: could not list etcd members: %v", h, err))
 		return
 	}
 
 	memberID := findEtcdMemberID(memberOutput, peerAddr)
 	if memberID == "" {
-		log.Infof("%s: etcd member not found (already removed or different address)", h)
+		slog.Info(fmt.Sprintf("%s: etcd member not found (already removed or different address)", h))
 		return
 	}
 
@@ -153,11 +154,11 @@ func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
 	)
 
 	if err := p.leader.Sudo().Exec(removeCmd); err != nil {
-		log.Warnf("%s: etcd member remove failed: %v", h, err)
+		slog.Warn(fmt.Sprintf("%s: etcd member remove failed: %v", h, err))
 		return
 	}
 
-	log.Infof("%s: etcd member %s removed", h, memberID)
+	slog.Info(fmt.Sprintf("%s: etcd member %s removed", h, memberID))
 }
 
 // findEtcdMemberID parses etcdctl member list output to find the member ID

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"sync"
 
+	"log/slog"
+
 	rigos "github.com/k0sproject/rig/v2/os"
-	log "github.com/sirupsen/logrus"
 )
 
 type osModuleEntry struct {
@@ -34,7 +35,7 @@ func ResolveOSModule(r *rigos.Release) (Configurer, error) {
 			if !ok {
 				return nil, fmt.Errorf("OS module for %s does not implement Configurer", r.ID)
 			}
-			log.Debugf("resolved OS module for %s: %T", r.ID, c)
+			slog.Debug(fmt.Sprintf("resolved OS module for %s: %T", r.ID, c))
 			return c, nil
 		}
 	}
@@ -47,7 +48,7 @@ func ResolveOSModule(r *rigos.Release) (Configurer, error) {
 				if !ok {
 					continue
 				}
-				log.Debugf("resolved OS module for %s via ID_LIKE=%s: %T", r.ID, idLike, c)
+				slog.Debug(fmt.Sprintf("resolved OS module for %s via ID_LIKE=%s: %T", r.ID, idLike, c))
 				return c, nil
 			}
 		}

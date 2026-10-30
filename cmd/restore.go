@@ -6,7 +6,8 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/action"
 )
@@ -63,7 +64,7 @@ func restoreCommand() *cli.Command {
 				return err
 			}
 
-			log.Infof("==> Cluster restored from %s", snapshotPath)
+			slog.Info(fmt.Sprintf("==> Cluster restored from %s", snapshotPath))
 			return nil
 		},
 	}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 const (
@@ -63,7 +63,7 @@ func LatestK3sBinaryURL(ctx context.Context, version, arch string) (string, erro
 func LatestK3sctlVersion(ctx context.Context) (string, error) {
 	releases, err := fetchReleases(ctx, k3sctlReleasesURL)
 	if err != nil {
-		log.Debugf("failed to fetch k3sctl releases: %v", err)
+		slog.Debug(fmt.Sprintf("failed to fetch k3sctl releases: %v", err))
 		return "", nil
 	}
 

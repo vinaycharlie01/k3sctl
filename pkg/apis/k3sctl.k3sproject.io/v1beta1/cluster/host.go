@@ -8,13 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	rig "github.com/k0sproject/rig/v2"
 	rigos "github.com/k0sproject/rig/v2/os"
 	"github.com/k0sproject/rig/v2/protocol/openssh"
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/configurer"
 )
 
@@ -253,31 +254,31 @@ func (h *Host) DrainNode(leader *Host, opts *DrainOption) error {
 		opts = (&Options{}).GetDrainOptions()
 	}
 	if !opts.Enabled {
-		log.Infof("%s: node drain disabled, skipping", h)
+		slog.Info(fmt.Sprintf("%s: node drain disabled, skipping", h))
 		return nil
 	}
-	log.Infof("%s: draining node", h)
+	slog.Info(fmt.Sprintf("%s: draining node", h))
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
 		"drain %s %s", shellQuote(h.KubernetesNodeName()), opts.ToKubectlArgs())
 	return leader.Sudo().Exec(cmd)
 }
 
 func (h *Host) UncordonNode(leader *Host) error {
-	log.Infof("%s: uncordoning node", h)
+	slog.Info(fmt.Sprintf("%s: uncordoning node", h))
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
 		"uncordon %s", shellQuote(h.KubernetesNodeName()))
 	return leader.Sudo().Exec(cmd)
 }
 
 func (h *Host) CordonNode(leader *Host) error {
-	log.Infof("%s: cordoning node", h)
+	slog.Info(fmt.Sprintf("%s: cordoning node", h))
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
 		"cordon %s", shellQuote(h.KubernetesNodeName()))
 	return leader.Sudo().Exec(cmd)
 }
 
 func (h *Host) DeleteNode(leader *Host) error {
-	log.Infof("%s: deleting node from cluster", h)
+	slog.Info(fmt.Sprintf("%s: deleting node from cluster", h))
 	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
 		"delete node %s --ignore-not-found=true", shellQuote(h.KubernetesNodeName()))
 	return leader.Sudo().Exec(cmd)
@@ -317,7 +318,7 @@ func (h *Host) RunHooks(action, stage string) error {
 	}
 
 	for _, cmd := range commands {
-		log.Infof("%s: running %s %s hook: %s", h, action, stage, cmd)
+		slog.Info(fmt.Sprintf("%s: running %s %s hook: %s", h, action, stage, cmd))
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("hook %q failed on %s: %w", cmd, h, err)
 		}

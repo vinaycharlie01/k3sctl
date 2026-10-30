@@ -6,7 +6,8 @@ import (
 	"io/fs"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -44,18 +45,18 @@ func (p *Reinstall) Run(ctx context.Context) error {
 }
 
 func (p *Reinstall) reinstall(ctx context.Context, h *cluster.Host) error {
-	log.Infof("%s: reinstalling K3s service with updated flags", h)
+	slog.Info(fmt.Sprintf("%s: reinstalling K3s service with updated flags", h))
 
 	if h.IsAgent() && !p.NoDrain && p.leader != nil {
 		if err := h.CordonNode(p.leader); err != nil {
-			log.Warnf("%s: cordon failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
 		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
-			log.Warnf("%s: drain failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 		defer func() {
 			if err := h.UncordonNode(p.leader); err != nil {
-				log.Warnf("%s: uncordon failed: %v", h, err)
+				slog.Warn(fmt.Sprintf("%s: uncordon failed: %v", h, err))
 			}
 		}()
 	}
@@ -93,6 +94,6 @@ func (p *Reinstall) reinstall(ctx context.Context, h *cluster.Host) error {
 	}
 
 	h.Metadata.NeedsReinstall = false
-	log.Infof("%s: K3s service reinstalled", h)
+	slog.Info(fmt.Sprintf("%s: K3s service reinstalled", h))
 	return nil
 }

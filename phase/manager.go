@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
@@ -133,7 +134,7 @@ func (m *Manager) Run(ctx context.Context, config *v1beta1.Cluster) error {
 		}
 		for _, phase := range ran {
 			if c, ok := phase.(withcleanup); ok {
-				log.Infof("Running clean-up for phase: %s", phase.Title())
+				slog.Info(fmt.Sprintf("Running clean-up for phase: %s", phase.Title()))
 				c.CleanUp()
 			}
 		}
@@ -174,7 +175,7 @@ func (m *Manager) runPhase(ctx context.Context, phase Phase) (bool, error) {
 	}
 
 	title := phase.Title()
-	log.Infof("==> Running phase: %s", title)
+	slog.Info(fmt.Sprintf("==> Running phase: %s", title))
 	start := time.Now()
 
 	if wb, ok := phase.(withbefore); ok {
@@ -202,6 +203,6 @@ func (m *Manager) runPhase(ctx context.Context, phase Phase) (bool, error) {
 		}
 	}
 
-	log.Infof("==> Phase %s completed in %s", title, time.Since(start).Round(time.Millisecond))
+	slog.Info(fmt.Sprintf("==> Phase %s completed in %s", title, time.Since(start).Round(time.Millisecond)))
 	return true, nil
 }

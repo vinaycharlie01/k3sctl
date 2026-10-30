@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -24,15 +25,15 @@ func (p *GatherFacts) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: detect architecture: %w", h, err)
 		}
 		h.Metadata.Arch = arch
-		log.Infof("%s: architecture: %s", h, arch)
+		slog.Info(fmt.Sprintf("%s: architecture: %s", h, arch))
 
 		hostname, err := h.ExecOutput("hostname -s")
 		if err != nil {
-			log.Warnf("%s: failed to detect hostname: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: failed to detect hostname: %v", h, err))
 			hostname = h.Address()
 		}
 		h.Metadata.Hostname = strings.TrimSpace(hostname)
-		log.Infof("%s: hostname: %s", h, h.Metadata.Hostname)
+		slog.Info(fmt.Sprintf("%s: hostname: %s", h, h.Metadata.Hostname))
 
 		machineID, err := h.ExecOutput("cat /etc/machine-id 2>/dev/null || cat /var/lib/dbus/machine-id 2>/dev/null || echo unknown")
 		if err == nil {
@@ -42,15 +43,15 @@ func (p *GatherFacts) Run(ctx context.Context) error {
 		if h.PrivateInterface == "" && h.PrivateAddress == "" {
 			iface, err := h.Configurer.PrivateInterface(h)
 			if err != nil {
-				log.Warnf("%s: could not detect private interface: %v", h, err)
+				slog.Warn(fmt.Sprintf("%s: could not detect private interface: %v", h, err))
 			} else {
 				h.PrivateInterface = iface
 				addr, err := h.Configurer.PrivateAddress(h, iface, h.Address())
 				if err != nil {
-					log.Warnf("%s: could not detect private address: %v", h, err)
+					slog.Warn(fmt.Sprintf("%s: could not detect private address: %v", h, err))
 				} else {
 					h.PrivateAddress = addr
-					log.Infof("%s: private address: %s (interface: %s)", h, addr, iface)
+					slog.Info(fmt.Sprintf("%s: private address: %s (interface: %s)", h, addr, iface))
 				}
 			}
 		}

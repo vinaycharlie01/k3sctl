@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"log/slog"
+
 	"github.com/k0sproject/rig/v2/remotefs"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -44,7 +45,7 @@ func (p *UploadAirgapBundle) uploadBundle(h *cluster.Host, localPath string) err
 	imagesDir := filepath.Join(h.K3sDataDir(), "agent", "images")
 	remotePath := filepath.Join(imagesDir, filepath.Base(localPath))
 
-	log.Infof("%s: uploading air-gap image bundle to %s", h, remotePath)
+	slog.Info(fmt.Sprintf("%s: uploading air-gap image bundle to %s", h, remotePath))
 
 	return p.Wet(h, fmt.Sprintf("upload air-gap bundle %s to %s", localPath, remotePath), func() error {
 		if err := h.Sudo().Exec(fmt.Sprintf("mkdir -p %s", shellQuote(imagesDir))); err != nil {
@@ -59,7 +60,7 @@ func (p *UploadAirgapBundle) uploadBundle(h *cluster.Host, localPath string) err
 			return fmt.Errorf("%s: chmod air-gap bundle: %w", h, err)
 		}
 
-		log.Infof("%s: air-gap image bundle uploaded to %s", h, remotePath)
+		slog.Info(fmt.Sprintf("%s: air-gap image bundle uploaded to %s", h, remotePath))
 		return nil
 	})
 }

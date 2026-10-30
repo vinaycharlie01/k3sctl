@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -55,10 +56,10 @@ func (p *InstallBinaries) Run(ctx context.Context) error {
 		}
 
 		if err := h.Sudo().FS().Remove(stagedPath); err != nil {
-			log.Warnf("%s: failed to clean staged binary: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: failed to clean staged binary: %v", h, err))
 		}
 
-		log.Infof("%s: K3s binary installed to %s", h, binaryDir)
+		slog.Info(fmt.Sprintf("%s: K3s binary installed to %s", h, binaryDir))
 		return nil
 	})
 }

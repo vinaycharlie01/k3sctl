@@ -2,12 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 	"github.com/vinaycharlie01/k3sctl/pkg/manifest"
@@ -67,19 +66,15 @@ func dryRunFlag() *cli.BoolFlag {
 }
 
 func initLogging(ctx *cli.Context) error {
-	log.SetOutput(os.Stderr)
-	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC3339,
-	})
-
-	if ctx.Bool("trace") {
-		log.SetLevel(log.TraceLevel)
-	} else if ctx.Bool("debug") {
-		log.SetLevel(log.DebugLevel)
-	} else {
-		log.SetLevel(log.InfoLevel)
+	level := slog.LevelInfo
+	if ctx.Bool("trace") || ctx.Bool("debug") {
+		level = slog.LevelDebug
 	}
+
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	})
+	slog.SetDefault(slog.New(handler))
 
 	return nil
 }

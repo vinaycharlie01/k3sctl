@@ -3,7 +3,9 @@ package phase
 import (
 	"context"
 
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -20,10 +22,10 @@ func (p *Unlock) Run(ctx context.Context) error {
 		lockFile := h.Configurer.K3sctlLockFilePath()
 		if h.Sudo().FS().FileExist(lockFile) {
 			if err := h.Sudo().FS().Remove(lockFile); err != nil {
-				log.Warnf("%s: failed to release lock: %v", h, err)
+				slog.Warn(fmt.Sprintf("%s: failed to release lock: %v", h, err))
 				return nil
 			}
-			log.Debugf("%s: released lock", h)
+			slog.Debug(fmt.Sprintf("%s: released lock", h))
 		}
 		return nil
 	})

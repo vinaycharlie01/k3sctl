@@ -3,7 +3,8 @@ package cmd
 import (
 	"os"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/action"
 )
@@ -44,7 +45,7 @@ func kubeconfigCommand() *cli.Command {
 				return err
 			}
 
-			log.Debug("kubeconfig retrieved")
+			slog.Debug("kubeconfig retrieved")
 			return nil
 		},
 	}

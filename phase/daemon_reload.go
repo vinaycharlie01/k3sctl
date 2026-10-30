@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -21,7 +22,7 @@ func (p *DaemonReload) Run(ctx context.Context) error {
 		if err := h.Sudo().Exec("systemctl daemon-reload"); err != nil {
 			return fmt.Errorf("%s: daemon-reload failed: %w", h, err)
 		}
-		log.Debugf("%s: systemd daemon reloaded", h)
+		slog.Debug(fmt.Sprintf("%s: systemd daemon reloaded", h))
 		return nil
 	})
 }

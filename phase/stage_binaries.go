@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/k3s"
 )
@@ -38,11 +39,11 @@ func (p *StageBinaries) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: no binary provider configured", h)
 		}
 
-		log.Infof("%s: staging K3s binary", h)
+		slog.Info(fmt.Sprintf("%s: staging K3s binary", h))
 		if err := provider.Stage(ctx); err != nil {
 			return fmt.Errorf("%s: stage binary: %w", h, err)
 		}
-		log.Infof("%s: K3s binary staged", h)
+		slog.Info(fmt.Sprintf("%s: K3s binary staged", h))
 		return nil
 	})
 }
@@ -51,7 +52,7 @@ func (p *StageBinaries) CleanUp() {
 	for _, h := range p.hosts {
 		if h.Metadata.BinaryProvider != nil {
 			if err := h.Metadata.BinaryProvider.CleanUp(context.Background()); err != nil {
-				log.Warnf("%s: clean up staged binary: %v", h, err)
+				slog.Warn(fmt.Sprintf("%s: clean up staged binary: %v", h, err))
 			}
 		}
 	}

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -36,7 +37,7 @@ func (p *StopK3s) Run(ctx context.Context) error {
 		return fmt.Errorf("%s: get service: %w", h, err)
 	}
 
-	log.Infof("%s: stopping K3s service for restore", h)
+	slog.Info(fmt.Sprintf("%s: stopping K3s service for restore", h))
 	if err := svc.Stop(ctx); err != nil {
 		return fmt.Errorf("%s: stop service: %w", h, err)
 	}

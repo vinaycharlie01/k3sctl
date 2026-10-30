@@ -3,7 +3,9 @@ package phase
 import (
 	"context"
 
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/integration/github"
 )
 
@@ -17,7 +19,7 @@ func (p *DefaultK3sVersion) Title() string {
 
 func (p *DefaultK3sVersion) Run(ctx context.Context) error {
 	if p.Config.Spec.K3s.Version != "" {
-		log.Infof("using configured K3s version %s", p.Config.Spec.K3s.Version)
+		slog.Info(fmt.Sprintf("using configured K3s version %s", p.Config.Spec.K3s.Version))
 		return nil
 	}
 
@@ -27,6 +29,6 @@ func (p *DefaultK3sVersion) Run(ctx context.Context) error {
 	}
 
 	p.Config.Spec.K3s.Version = ver
-	log.Infof("using latest K3s version: %s", ver)
+	slog.Info(fmt.Sprintf("using latest K3s version: %s", ver))
 	return nil
 }

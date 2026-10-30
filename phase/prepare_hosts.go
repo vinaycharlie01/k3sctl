@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	rig "github.com/k0sproject/rig/v2"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/configurer"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -33,11 +34,11 @@ func (p *PrepareHosts) prepareHost(ctx context.Context, h *cluster.Host) error {
 		if err := prep.Prepare(h); err != nil {
 			return fmt.Errorf("%s: prepare host: %w", h, err)
 		}
-		log.Infof("%s: host prepared", h)
+		slog.Info(fmt.Sprintf("%s: host prepared", h))
 	}
 
 	if len(h.Environment) > 0 {
-		log.Infof("%s: updating environment", h)
+		slog.Info(fmt.Sprintf("%s: updating environment", h))
 		if err := p.updateEnvironment(ctx, h); err != nil {
 			return fmt.Errorf("%s: update environment: %w", h, err)
 		}
@@ -56,7 +57,7 @@ func (p *PrepareHosts) updateEnvironment(ctx context.Context, h *cluster.Host) e
 		return nil
 	}
 
-	log.Infof("%s: reconnecting to apply new environment", h)
+	slog.Info(fmt.Sprintf("%s: reconnecting to apply new environment", h))
 	h.Disconnect()
 	return retry.Context(ctx, func(ctx context.Context) error {
 		if err := h.Connect(ctx); err != nil {
