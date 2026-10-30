@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"gopkg.in/yaml.v2"
 )
@@ -91,7 +92,7 @@ func (p *ConfigureRegistries) Run(ctx context.Context) error {
 		if err := h.Sudo().FS().WriteFile(registriesPath, data, fs.FileMode(0600)); err != nil {
 			return fmt.Errorf("%s: write registries.yaml: %w", h, err)
 		}
-		log.Infof("%s: wrote registries config to %s", h, registriesPath)
+		slog.Info(fmt.Sprintf("%s: wrote registries config to %s", h, registriesPath))
 		return nil
 	})
 }

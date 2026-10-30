@@ -6,7 +6,8 @@ import (
 	"io"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -35,7 +36,7 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 	h := p.leader
 	kubeconfigPath := "/etc/rancher/k3s/k3s.yaml"
 
-	log.Infof("%s: reading kubeconfig from %s", h, kubeconfigPath)
+	slog.Info(fmt.Sprintf("%s: reading kubeconfig from %s", h, kubeconfigPath))
 	output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s", shellQuote(kubeconfigPath)))
 	if err != nil {
 		return fmt.Errorf("%s: read kubeconfig: %w", h, err)
@@ -56,7 +57,7 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 	}
 
 	p.Config.Metadata.Kubeconfig = kubeconfig
-	log.Infof("kubeconfig retrieved successfully")
+	slog.Info("kubeconfig retrieved successfully")
 
 	return nil
 }

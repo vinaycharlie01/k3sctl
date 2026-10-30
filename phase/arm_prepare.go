@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -36,7 +38,7 @@ func (p *PrepareArm) ShouldRun() bool {
 func (p *PrepareArm) Run(ctx context.Context) error {
 	return p.parallelDo(ctx, p.hosts, func(_ context.Context, h *cluster.Host) error {
 		arch := h.Metadata.Arch
-		log.Warnf("%s: enabling ETCD_UNSUPPORTED_ARCH=%s; the embedded etcd does not support this architecture natively", h, arch)
+		slog.Warn(fmt.Sprintf("%s: enabling ETCD_UNSUPPORTED_ARCH=%s; the embedded etcd does not support this architecture natively", h, arch))
 		if h.Environment == nil {
 			h.Environment = make(map[string]string)
 		}

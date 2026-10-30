@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -34,7 +35,7 @@ func (p *RunHooks) Run(ctx context.Context) error {
 	return p.parallelDo(ctx, p.hosts, func(ctx context.Context, h *cluster.Host) error {
 		hooks := h.Hooks.ForActionAndStage(p.Action, p.Stage)
 		for _, cmd := range hooks {
-			log.Infof("%s: running hook: %s", h, cmd)
+			slog.Info(fmt.Sprintf("%s: running hook: %s", h, cmd))
 			if err := h.Sudo().Exec(cmd); err != nil {
 				return fmt.Errorf("%s: hook failed: %w", h, err)
 			}

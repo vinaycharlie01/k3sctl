@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -59,7 +60,7 @@ func (p *ConfigureK3s) Run(ctx context.Context) error {
 		if err := h.Sudo().FS().WriteFile(configPath, configData, fs.FileMode(0600)); err != nil {
 			return fmt.Errorf("%s: write config: %w", h, err)
 		}
-		log.Infof("%s: wrote K3s config to %s", h, configPath)
+		slog.Info(fmt.Sprintf("%s: wrote K3s config to %s", h, configPath))
 
 		return nil
 	})
@@ -95,7 +96,7 @@ func (p *ConfigureK3s) resolveClusterToken() (string, error) {
 		return "", err
 	}
 	p.leader.Metadata.NodeToken = token
-	log.Infof("%s: generated cluster token", p.leader)
+	slog.Info(fmt.Sprintf("%s: generated cluster token", p.leader))
 	return token, nil
 }
 

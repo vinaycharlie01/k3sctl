@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -36,18 +37,18 @@ func (p *StartK3s) Run(ctx context.Context) error {
 		return fmt.Errorf("%s: get service: %w", h, err)
 	}
 
-	log.Infof("%s: starting K3s service", h)
+	slog.Info(fmt.Sprintf("%s: starting K3s service", h))
 	if err := svc.Start(ctx); err != nil {
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
-	log.Infof("%s: waiting for K3s to be ready", h)
+	slog.Info(fmt.Sprintf("%s: waiting for K3s to be ready", h))
 	if err := retry.Context(ctx, node.KubeNodeReadyFunc(h, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
 	}
 
 	h.Metadata.K3sServiceRunning = true
-	log.Infof("%s: K3s service started", h)
+	slog.Info(fmt.Sprintf("%s: K3s service started", h))
 	return nil
 }

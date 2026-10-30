@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/configurer"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 
@@ -31,7 +32,7 @@ func (p *DetectOS) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: detect OS: %w", h, err)
 		}
 
-		log.Infof("%s: detected OS: %s %s", h, osRelease.ID, osRelease.Version)
+		slog.Info(fmt.Sprintf("%s: detected OS: %s %s", h, osRelease.ID, osRelease.Version))
 
 		if h.OSIDOverride != "" {
 			osRelease.ID = h.OSIDOverride
@@ -43,7 +44,7 @@ func (p *DetectOS) Run(ctx context.Context) error {
 		}
 
 		h.Configurer = c
-		log.Debugf("%s: using configurer %T", h, c)
+		slog.Debug(fmt.Sprintf("%s: using configurer %T", h, c))
 		return nil
 	})
 }

@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/version"
 )
@@ -39,9 +39,7 @@ func Run() {
 
 	app := NewK3sctl()
 	if err := app.RunContext(ctx, os.Args); err != nil {
-		// urfave/cli only prints errors implementing cli.ExitCoder; every
-		// other error would otherwise exit silently.
-		log.Error(err)
+		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }

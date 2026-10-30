@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -45,7 +46,7 @@ func (p *InstallServers) Run(ctx context.Context) error {
 
 	batches := quorumSafeBatches(len(running), p.hosts)
 	for i, batch := range batches {
-		log.Infof("installing server batch %d/%d (%d hosts)", i+1, len(batches), len(batch))
+		slog.Info(fmt.Sprintf("installing server batch %d/%d (%d hosts)", i+1, len(batches), len(batch)))
 		for _, h := range batch {
 			if err := p.installServer(ctx, h); err != nil {
 				return err
@@ -110,7 +111,7 @@ func (p *InstallServers) CleanUp() {
 	}
 
 	_ = failed.ParallelEach(context.Background(), 5, func(_ context.Context, h *cluster.Host) error {
-		log.Infof("%s: cleaning up failed server install", h)
+		slog.Info(fmt.Sprintf("%s: cleaning up failed server install", h))
 
 		if p.Manager != nil && p.Manager.DryRun {
 			return nil
@@ -134,13 +135,13 @@ func (p *InstallServers) CleanUp() {
 			_ = h.Sudo().FS().Remove(configPath)
 		}
 
-		log.Infof("%s: clean-up complete", h)
+		slog.Info(fmt.Sprintf("%s: clean-up complete", h))
 		return nil
 	})
 }
 
 func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) error {
-	log.Infof("%s: installing K3s server (joining cluster)", h)
+	slog.Info(fmt.Sprintf("%s: installing K3s server (joining cluster)", h))
 
 	installFlags := h.K3sInstallFlags()
 	unitContent := k3sServerUnit(h.Configurer.K3sBinaryPath(), installFlags, h.Environment)
@@ -167,7 +168,7 @@ func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) err
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
-	log.Infof("%s: waiting for K3s server to be ready", h)
+	slog.Info(fmt.Sprintf("%s: waiting for K3s server to be ready", h))
 	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
@@ -176,7 +177,7 @@ func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) err
 	h.Metadata.K3sServiceRunning = true
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
 	h.Metadata.NeedsUpgrade = false
-	log.Infof("%s: K3s server joined cluster", h)
+	slog.Info(fmt.Sprintf("%s: K3s server joined cluster", h))
 
 	return nil
 }
@@ -206,7 +207,7 @@ func (p *PropagateToken) Run(ctx context.Context) error {
 	token := strings.TrimSpace(p.leader.Metadata.NodeToken)
 	return p.parallelDo(ctx, p.hosts, func(ctx context.Context, h *cluster.Host) error {
 		h.Metadata.NodeToken = token
-		log.Debugf("%s: propagated node token", h)
+		slog.Debug(fmt.Sprintf("%s: propagated node token", h))
 		return nil
 	})
 }

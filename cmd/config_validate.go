@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/urfave/cli/v2"
 )
 
@@ -21,7 +22,7 @@ func configValidateCommand() *cli.Command {
 				fmt.Fprintf(os.Stderr, "validation failed: %v\n", err)
 				return err
 			}
-			log.Info("configuration is valid")
+			slog.Info("configuration is valid")
 			return nil
 		},
 	}

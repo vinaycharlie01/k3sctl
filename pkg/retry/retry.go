@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 var ErrAbort = errors.New("retry aborted")
@@ -52,7 +52,7 @@ func Context(ctx context.Context, fn func(context.Context) error, opts ...Option
 				return fmt.Errorf("retry aborted: %w", errors.Unwrap(err))
 			}
 			lastErr = err
-			log.Tracef("retry: %v", err)
+			slog.Debug(fmt.Sprintf("retry: %v", err))
 		} else {
 			return nil
 		}
@@ -76,7 +76,7 @@ func Times(ctx context.Context, n int, fn func(context.Context) error) error {
 				return fmt.Errorf("retry aborted: %w", errors.Unwrap(err))
 			}
 			lastErr = err
-			log.Tracef("retry attempt %d/%d: %v", i+1, n, err)
+			slog.Debug(fmt.Sprintf("retry attempt %d/%d: %v", i+1, n, err))
 			continue
 		}
 		return nil

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -40,19 +41,19 @@ func (p *SecretsEncryptManage) Run(ctx context.Context) error {
 	se := p.Config.Spec.K3s.SecretsEncrypt
 
 	if se.RotateKeys {
-		log.Infof("%s: rotating secrets encryption keys dynamically", h)
+		slog.Info(fmt.Sprintf("%s: rotating secrets encryption keys dynamically", h))
 		cmd := h.Configurer.K3sCmdf("secrets-encrypt rotate-keys")
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("%s: secrets-encrypt rotate-keys failed: %w", h, err)
 		}
-		log.Infof("%s: waiting for key rotation to propagate", h)
+		slog.Info(fmt.Sprintf("%s: waiting for key rotation to propagate", h))
 		time.Sleep(5 * time.Second)
 	}
 
 	if se.Reencrypt {
-		log.Infof("%s: triggering re-encryption of secrets", h)
+		slog.Info(fmt.Sprintf("%s: triggering re-encryption of secrets", h))
 
-		log.Infof("%s: preparing encryption key rotation", h)
+		slog.Info(fmt.Sprintf("%s: preparing encryption key rotation", h))
 		cmd := h.Configurer.K3sCmdf("secrets-encrypt prepare")
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("%s: secrets-encrypt prepare failed: %w", h, err)
@@ -62,7 +63,7 @@ func (p *SecretsEncryptManage) Run(ctx context.Context) error {
 			return fmt.Errorf("restart servers after prepare: %w", err)
 		}
 
-		log.Infof("%s: rotating encryption keys", h)
+		slog.Info(fmt.Sprintf("%s: rotating encryption keys", h))
 		cmd = h.Configurer.K3sCmdf("secrets-encrypt rotate")
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("%s: secrets-encrypt rotate failed: %w", h, err)
@@ -72,13 +73,13 @@ func (p *SecretsEncryptManage) Run(ctx context.Context) error {
 			return fmt.Errorf("restart servers after rotate: %w", err)
 		}
 
-		log.Infof("%s: re-encrypting all secrets", h)
+		slog.Info(fmt.Sprintf("%s: re-encrypting all secrets", h))
 		cmd = h.Configurer.K3sCmdf("secrets-encrypt reencrypt")
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("%s: secrets-encrypt reencrypt failed: %w", h, err)
 		}
 
-		log.Infof("%s: secrets re-encryption initiated", h)
+		slog.Info(fmt.Sprintf("%s: secrets re-encryption initiated", h))
 	}
 
 	return nil
@@ -90,7 +91,7 @@ func (p *SecretsEncryptManage) restartAllServers(ctx context.Context) error {
 		if !h.Metadata.K3sServiceRunning {
 			return nil
 		}
-		log.Infof("%s: restarting k3s service", h)
+		slog.Info(fmt.Sprintf("%s: restarting k3s service", h))
 		svc, err := h.Sudo().Service(h.K3sServiceName())
 		if err != nil {
 			return fmt.Errorf("%s: find service: %w", h, err)

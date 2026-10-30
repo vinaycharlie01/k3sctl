@@ -15,7 +15,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"gopkg.in/yaml.v2"
 
 	v1beta1 "github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
@@ -106,7 +107,7 @@ func (r *Runner) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
-	log.Info("running preflight checks")
+	slog.Info("running preflight checks")
 	if err := r.preflight(ctx); err != nil {
 		return fmt.Errorf("preflight: %w", err)
 	}
@@ -116,17 +117,17 @@ func (r *Runner) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 
-	log.Info("applying k3sctl config")
+	slog.Info("applying k3sctl config")
 	if err := r.apply(ctx, configPath); err != nil {
 		return err
 	}
 
-	log.Info("verifying cluster")
+	slog.Info("verifying cluster")
 	if err := r.verify(ctx, configPath); err != nil {
 		return err
 	}
 
-	log.Info("single-node localhost integration test passed")
+	slog.Info("single-node localhost integration test passed")
 	return nil
 }
 
@@ -174,7 +175,7 @@ func (r *Runner) writeConfig() (string, error) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return "", fmt.Errorf("write cluster config: %w", err)
 	}
-	log.Infof("wrote cluster config to %s", path)
+	slog.Info(fmt.Sprintf("wrote cluster config to %s", path))
 	r.writeArtifact("k3sctl.yaml.rendered", string(data))
 	return path, nil
 }
@@ -307,7 +308,7 @@ func (r *Runner) verifyTeardown(ctx context.Context, configPath string) error {
 }
 
 func (r *Runner) collectDiagnostics(ctx context.Context) {
-	log.Warn("collecting failure diagnostics")
+	slog.Warn("collecting failure diagnostics")
 	var b strings.Builder
 
 	commands := []struct {
@@ -372,6 +373,6 @@ func (r *Runner) exec(ctx context.Context, name string, args ...string) (stdout,
 func (r *Runner) writeArtifact(name, content string) {
 	path := filepath.Join(r.opts.ArtifactDir, name)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		log.Warnf("write artifact %s: %v", name, err)
+		slog.Warn(fmt.Sprintf("write artifact %s: %v", name, err))
 	}
 }

@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -28,18 +29,18 @@ func (p *CertRotate) Run(ctx context.Context) error {
 	servers := p.Config.Spec.Hosts.Servers()
 	return p.parallelDo(ctx, servers, func(ctx context.Context, h *cluster.Host) error {
 		if !h.Metadata.K3sServiceRunning {
-			log.Infof("%s: k3s not running, skipping certificate rotation", h)
+			slog.Info(fmt.Sprintf("%s: k3s not running, skipping certificate rotation", h))
 			return nil
 		}
 
-		log.Infof("%s: rotating certificates", h)
+		slog.Info(fmt.Sprintf("%s: rotating certificates", h))
 
 		cmd := h.Configurer.K3sCmdf("certificate rotate --force")
 		if err := h.Sudo().Exec(cmd); err != nil {
 			return fmt.Errorf("%s: certificate rotation failed: %w", h, err)
 		}
 
-		log.Infof("%s: restarting k3s after certificate rotation", h)
+		slog.Info(fmt.Sprintf("%s: restarting k3s after certificate rotation", h))
 		svc, err := h.Sudo().Service(h.K3sServiceName())
 		if err != nil {
 			return fmt.Errorf("%s: cannot find service: %w", h, err)
@@ -48,7 +49,7 @@ func (p *CertRotate) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: restart after cert rotation failed: %w", h, err)
 		}
 
-		log.Infof("%s: certificates rotated successfully", h)
+		slog.Info(fmt.Sprintf("%s: certificates rotated successfully", h))
 		return nil
 	})
 }

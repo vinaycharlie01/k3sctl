@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/vinaycharlie01/k3sctl/integration/environment"
 )
@@ -137,15 +137,15 @@ func (r *Runner) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
-	log.Info("creating nodes")
+	slog.Info("creating nodes")
 	var err error
 	nodes, err = r.options.Environment.Create(ctx)
 	if err != nil {
 		return fmt.Errorf("create environment: %w", err)
 	}
-	log.Infof("created %d nodes", len(nodes))
+	slog.Info(fmt.Sprintf("created %d nodes", len(nodes)))
 
-	log.Info("bootstrapping nodes")
+	slog.Info("bootstrapping nodes")
 	if err := r.options.Environment.Bootstrap(ctx, nodes); err != nil {
 		return fmt.Errorf("bootstrap environment: %w", err)
 	}
@@ -169,7 +169,7 @@ func (r *Runner) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 
-	log.Info("multi-node K3s integration test passed")
+	slog.Info("multi-node K3s integration test passed")
 	return nil
 }
 
@@ -188,7 +188,7 @@ func (r *Runner) writeConfig(nodes []environment.Node) (string, error) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return "", fmt.Errorf("write cluster config: %w", err)
 	}
-	log.Infof("wrote cluster config to %s", path)
+	slog.Info(fmt.Sprintf("wrote cluster config to %s", path))
 	return path, nil
 }
 
@@ -381,7 +381,7 @@ func (r *Runner) verifyKubeconfig(ctx context.Context, configPath string, server
 }
 
 func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node, expectedMembers int) error {
-	log.Infof("verifying etcd cluster health (%d expected members)", expectedMembers)
+	slog.Info(fmt.Sprintf("verifying etcd cluster health (%d expected members)", expectedMembers))
 
 	// Collect diagnostics about the etcd environment for troubleshooting.
 	diagCmd := strings.Join([]string{
@@ -411,7 +411,7 @@ func (r *Runner) verifyEtcdCluster(ctx context.Context, leader *environment.Node
 	// Fall back: count control-plane nodes via kubectl. In a K3s HA cluster
 	// every server node runs an embedded etcd member, so the control-plane
 	// node count equals the etcd member count.
-	log.Warnf("etcd REST API unavailable, falling back to kubectl node count")
+	slog.Warn("etcd REST API unavailable, falling back to kubectl node count")
 	return r.verifyEtcdViaKubectl(ctx, leader, expectedMembers)
 }
 
@@ -444,7 +444,7 @@ func (r *Runner) verifyEtcdViaAPI(ctx context.Context, leader *environment.Node,
 		}
 
 		if attempt < 3 {
-			log.Warnf("etcd API attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5)
+			slog.Warn(fmt.Sprintf("etcd API attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -477,7 +477,7 @@ func (r *Runner) verifyEtcdViaKubectl(ctx context.Context, leader *environment.N
 					}
 				}
 				if readyCount == expected {
-					log.Infof("etcd member count verified via kubectl: %d control-plane nodes Ready", readyCount)
+					slog.Info(fmt.Sprintf("etcd member count verified via kubectl: %d control-plane nodes Ready", readyCount))
 					return nil
 				}
 				lastErr = fmt.Errorf("expected %d control-plane nodes, got %d Ready out of %d", expected, readyCount, len(nodes))
@@ -487,7 +487,7 @@ func (r *Runner) verifyEtcdViaKubectl(ctx context.Context, leader *environment.N
 		}
 
 		if attempt < 5 {
-			log.Warnf("kubectl etcd check attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5)
+			slog.Warn(fmt.Sprintf("kubectl etcd check attempt %d failed: %v; retrying in %ds", attempt, lastErr, attempt*5))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -499,7 +499,7 @@ func (r *Runner) verifyEtcdViaKubectl(ctx context.Context, leader *environment.N
 }
 
 func (r *Runner) verifyAllServerAPIs(ctx context.Context, servers []*environment.Node) error {
-	log.Infof("verifying API server on all %d servers", len(servers))
+	slog.Info(fmt.Sprintf("verifying API server on all %d servers", len(servers)))
 
 	for _, server := range servers {
 		if err := r.verifyAPIServer(ctx, server); err != nil {
@@ -534,7 +534,7 @@ func (r *Runner) cleanup(ctx context.Context, configPath string) error {
 }
 
 func (r *Runner) collectDiagnostics(ctx context.Context, nodes []environment.Node) {
-	log.Warn("collecting failure diagnostics")
+	slog.Warn("collecting failure diagnostics")
 
 	targets := make([]DiagnosticTarget, 0, len(nodes))
 	for _, node := range nodes {
@@ -567,7 +567,7 @@ func (r *Runner) remote(ctx context.Context, address, command string, timeout ti
 func (r *Runner) writeArtifact(name, content string) {
 	path := filepath.Join(r.options.ArtifactDir, name)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		log.Warnf("write artifact %s: %v", name, err)
+		slog.Warn(fmt.Sprintf("write artifact %s: %v", name, err))
 	}
 }
 

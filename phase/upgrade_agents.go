@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -50,17 +51,17 @@ func (p *UpgradeAgents) Run(ctx context.Context) error {
 }
 
 func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error {
-	log.Infof("%s: upgrading K3s agent from %s to %s", h, h.Metadata.K3sRunningVersion, p.Config.Spec.K3s.Version)
+	slog.Info(fmt.Sprintf("%s: upgrading K3s agent from %s to %s", h, h.Metadata.K3sRunningVersion, p.Config.Spec.K3s.Version))
 
 	if !p.NoDrain && p.leader != nil {
-		log.Infof("%s: cordoning node", h)
+		slog.Info(fmt.Sprintf("%s: cordoning node", h))
 		if err := h.CordonNode(p.leader); err != nil {
-			log.Warnf("%s: cordon failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
 
-		log.Infof("%s: draining node", h)
+		slog.Info(fmt.Sprintf("%s: draining node", h))
 		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
-			log.Warnf("%s: drain failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 	}
 
@@ -69,7 +70,7 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 		return fmt.Errorf("%s: get service: %w", h, err)
 	}
 
-	log.Infof("%s: stopping K3s agent", h)
+	slog.Info(fmt.Sprintf("%s: stopping K3s agent", h))
 	if err := svc.Stop(ctx); err != nil {
 		return fmt.Errorf("%s: stop service: %w", h, err)
 	}
@@ -93,21 +94,21 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 		}
 	}
 
-	log.Infof("%s: starting K3s agent", h)
+	slog.Info(fmt.Sprintf("%s: starting K3s agent", h))
 	if err := svc.Start(ctx); err != nil {
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
 	if !p.NoDrain && p.leader != nil {
-		log.Infof("%s: uncordoning node", h)
+		slog.Info(fmt.Sprintf("%s: uncordoning node", h))
 		if err := h.UncordonNode(p.leader); err != nil {
-			log.Warnf("%s: uncordon failed: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: uncordon failed: %v", h, err))
 		}
 	}
 
 	h.Metadata.K3sRunningVersion = p.Config.Spec.K3s.Version
 	h.Metadata.NeedsUpgrade = false
-	log.Infof("%s: K3s agent upgraded", h)
+	slog.Info(fmt.Sprintf("%s: K3s agent upgraded", h))
 
 	return nil
 }
@@ -118,7 +119,7 @@ func (p *UpgradeAgents) CleanUp() {
 	}
 	for _, h := range p.hosts {
 		if err := h.UncordonNode(p.leader); err != nil {
-			log.Debugf("%s: cleanup uncordon: %v", h, err)
+			slog.Debug(fmt.Sprintf("%s: cleanup uncordon: %v", h, err))
 		}
 	}
 }

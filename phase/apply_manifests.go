@@ -5,8 +5,9 @@ import (
 	"context"
 	"fmt"
 
+	"log/slog"
+
 	rigcmd "github.com/k0sproject/rig/v2/cmd"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -45,7 +46,7 @@ func (p *ApplyManifests) apply(ctx context.Context, name string, content []byte)
 }
 
 func (p *ApplyManifests) runApply(ctx context.Context, name string, content []byte) error {
-	log.Infof("%s: applying manifest %s (%d bytes)", p.leader, name, len(content))
+	slog.Info(fmt.Sprintf("%s: applying manifest %s (%d bytes)", p.leader, name, len(content)))
 
 	var stdout, stderr bytes.Buffer
 	err := p.leader.Sudo().ExecContext(ctx,
@@ -58,7 +59,7 @@ func (p *ApplyManifests) runApply(ctx context.Context, name string, content []by
 		return fmt.Errorf("%s: apply manifest %s: %w (stderr: %s)", p.leader, name, err, stderr.String())
 	}
 	if out := stdout.String(); out != "" {
-		log.Debugf("%s: kubectl apply: %s", p.leader, out)
+		slog.Debug(fmt.Sprintf("%s: kubectl apply: %s", p.leader, out))
 	}
 	return nil
 }

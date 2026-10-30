@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -49,10 +50,10 @@ func (p *ValidateFacts) Run(_ context.Context) error {
 		switch {
 		case installed == "":
 			h.Metadata.NeedsUpgrade = true
-			log.Infof("%s: K3s is not installed, will install %s", h, targetVersion)
+			slog.Info(fmt.Sprintf("%s: K3s is not installed, will install %s", h, targetVersion))
 		case installed != targetVersion:
 			h.Metadata.NeedsUpgrade = true
-			log.Infof("%s: needs upgrade from %s to %s", h, installed, targetVersion)
+			slog.Info(fmt.Sprintf("%s: needs upgrade from %s to %s", h, installed, targetVersion))
 		default:
 			h.Metadata.NeedsUpgrade = false
 		}
@@ -61,7 +62,7 @@ func (p *ValidateFacts) Run(_ context.Context) error {
 			h.Metadata.NeedsReinstall = h.Metadata.K3sServiceRunning &&
 				!h.K3sInstallFlags().Equals(h.Metadata.K3sCurrentInstallFlags)
 			if h.Metadata.NeedsReinstall {
-				log.Infof("%s: install flags changed, will reinstall service", h)
+				slog.Info(fmt.Sprintf("%s: install flags changed, will reinstall service", h))
 			}
 		} else {
 			h.Metadata.NeedsReinstall = false

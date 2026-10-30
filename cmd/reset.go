@@ -3,7 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/urfave/cli/v2"
 	"github.com/vinaycharlie01/k3sctl/action"
 )
@@ -62,7 +63,7 @@ func resetCommand() *cli.Command {
 				return err
 			}
 
-			log.Info("==> Reset complete")
+			slog.Info("==> Reset complete")
 			return nil
 		},
 	}

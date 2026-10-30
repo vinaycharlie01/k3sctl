@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -38,12 +39,12 @@ func (p *EtcdSnapshotPrune) Run(_ context.Context) error {
 		args += fmt.Sprintf(" --name %s", shellQuote(prune.Name))
 	}
 
-	log.Infof("%s: pruning etcd snapshots (retention: %d)", h, prune.Retention)
+	slog.Info(fmt.Sprintf("%s: pruning etcd snapshots (retention: %d)", h, prune.Retention))
 	cmd := h.Configurer.K3sCmdf(args)
 	if err := h.Sudo().Exec(cmd); err != nil {
 		return fmt.Errorf("%s: etcd snapshot prune failed: %w", h, err)
 	}
 
-	log.Infof("%s: etcd snapshot pruning complete", h)
+	slog.Info(fmt.Sprintf("%s: etcd snapshot pruning complete", h))
 	return nil
 }

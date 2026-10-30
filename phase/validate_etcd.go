@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -33,25 +34,25 @@ func (p *ValidateEtcdMembers) ShouldRun() bool {
 }
 
 func (p *ValidateEtcdMembers) Run(ctx context.Context) error {
-	log.Infof("%s: checking etcd member health", p.leader)
+	slog.Info(fmt.Sprintf("%s: checking etcd member health", p.leader))
 
 	output, err := p.leader.Sudo().ExecOutput(
 		fmt.Sprintf("%s etcd-snapshot list 2>&1 || true", shellQuote(p.leader.K3sBinaryDir())),
 	)
 	if err != nil {
-		log.Warnf("%s: could not query etcd: %v", p.leader, err)
+		slog.Warn(fmt.Sprintf("%s: could not query etcd: %v", p.leader, err))
 		return nil
 	}
 
 	if strings.Contains(output, "etcdserver: not the leader") {
-		log.Warnf("%s: etcd reports this node is not the leader, cluster may be in recovery", p.leader)
+		slog.Warn(fmt.Sprintf("%s: etcd reports this node is not the leader, cluster may be in recovery", p.leader))
 	}
 
 	if strings.Contains(output, "context deadline exceeded") || strings.Contains(output, "connection refused") {
 		return fmt.Errorf("%s: etcd is unhealthy: %s", p.leader, firstLine(output))
 	}
 
-	log.Infof("%s: etcd is healthy", p.leader)
+	slog.Info(fmt.Sprintf("%s: etcd is healthy", p.leader))
 
 	if err := p.validateMembers(ctx); err != nil {
 		return err
@@ -68,15 +69,15 @@ func (p *ValidateEtcdMembers) Run(ctx context.Context) error {
 				shellQuote(h.K3sBinaryDir()), shellQuote(h.Metadata.Hostname)),
 		)
 		if err != nil {
-			log.Warnf("%s: could not check node readiness: %v", h, err)
+			slog.Warn(fmt.Sprintf("%s: could not check node readiness: %v", h, err))
 			return nil
 		}
 
 		output = strings.Trim(output, "'")
 		if output != "True" {
-			log.Warnf("%s: node is not ready (status: %s)", h, output)
+			slog.Warn(fmt.Sprintf("%s: node is not ready (status: %s)", h, output))
 		} else {
-			log.Infof("%s: node is ready", h)
+			slog.Info(fmt.Sprintf("%s: node is ready", h))
 		}
 
 		return nil
@@ -101,31 +102,31 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 		etcdCurlBase + "-d '{}' https://127.0.0.1:2379/v3/cluster/member/list 2>/dev/null || true",
 	)
 	if err != nil {
-		log.Warnf("%s: could not list etcd members, skipping stale member check: %v", p.leader, err)
+		slog.Warn(fmt.Sprintf("%s: could not list etcd members, skipping stale member check: %v", p.leader, err))
 		return nil
 	}
 
 	if strings.TrimSpace(memberOutput) == "" {
-		log.Debugf("%s: empty etcd member list, skipping stale check", p.leader)
+		slog.Debug(fmt.Sprintf("%s: empty etcd member list, skipping stale check", p.leader))
 		return nil
 	}
 
 	var resp etcdMemberListResponse
 	if err := json.Unmarshal([]byte(memberOutput), &resp); err != nil {
-		log.Warnf("%s: could not parse etcd member list JSON, skipping stale check: %v", p.leader, err)
+		slog.Warn(fmt.Sprintf("%s: could not parse etcd member list JSON, skipping stale check: %v", p.leader, err))
 		return nil
 	}
 
 	knownAddrs := p.knownServerAddresses()
 	staleMembers := findStaleMembersFromAPI(resp.Members, knownAddrs)
 	if len(staleMembers) == 0 {
-		log.Infof("%s: all etcd members match configured hosts", p.leader)
+		slog.Info(fmt.Sprintf("%s: all etcd members match configured hosts", p.leader))
 		return nil
 	}
 
-	log.Warnf("%s: found %d stale etcd member(s)", p.leader, len(staleMembers))
+	slog.Warn(fmt.Sprintf("%s: found %d stale etcd member(s)", p.leader, len(staleMembers)))
 	for _, sm := range staleMembers {
-		log.Warnf("  stale member: id=%s peer=%s", sm.id, sm.peerURL)
+		slog.Warn(fmt.Sprintf("  stale member: id=%s peer=%s", sm.id, sm.peerURL))
 	}
 
 	if !p.Force {
@@ -136,7 +137,7 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 	}
 
 	for _, sm := range staleMembers {
-		log.Infof("%s: removing stale etcd member %s (%s)", p.leader, sm.id, sm.peerURL)
+		slog.Info(fmt.Sprintf("%s: removing stale etcd member %s (%s)", p.leader, sm.id, sm.peerURL))
 		removeCmd := fmt.Sprintf(
 			etcdCurlBase+"-X POST -d '{\"ID\":\"%s\"}' https://127.0.0.1:2379/v3/cluster/member/remove",
 			sm.id,
@@ -144,7 +145,7 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 		if err := p.leader.Sudo().Exec(removeCmd); err != nil {
 			return fmt.Errorf("%s: failed to remove stale etcd member %s: %w", p.leader, sm.id, err)
 		}
-		log.Infof("%s: removed stale etcd member %s", p.leader, sm.id)
+		slog.Info(fmt.Sprintf("%s: removed stale etcd member %s", p.leader, sm.id))
 	}
 
 	return nil

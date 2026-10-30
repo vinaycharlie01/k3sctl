@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/vinaycharlie01/k3sctl/pkg/node"
 	"github.com/vinaycharlie01/k3sctl/pkg/retry"
@@ -37,12 +38,12 @@ func (p *InitializeK3s) ShouldRun() bool {
 func (p *InitializeK3s) Run(ctx context.Context) error {
 	h := p.leader
 
-	log.Infof("%s: installing K3s service (server, cluster-init)", h)
+	slog.Info(fmt.Sprintf("%s: installing K3s service (server, cluster-init)", h))
 	if err := p.installK3sService(h); err != nil {
 		return fmt.Errorf("%s: install K3s service: %w", h, err)
 	}
 
-	log.Infof("%s: starting K3s service", h)
+	slog.Info(fmt.Sprintf("%s: starting K3s service", h))
 	svc, err := h.Sudo().Service(h.K3sServiceName())
 	if err != nil {
 		return fmt.Errorf("%s: get service: %w", h, err)
@@ -51,7 +52,7 @@ func (p *InitializeK3s) Run(ctx context.Context) error {
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
-	log.Infof("%s: waiting for K3s to be ready", h)
+	slog.Info(fmt.Sprintf("%s: waiting for K3s to be ready", h))
 	if err := p.waitForReady(ctx, h); err != nil {
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
 	}
@@ -63,7 +64,7 @@ func (p *InitializeK3s) Run(ctx context.Context) error {
 	}
 	h.Metadata.NodeToken = strings.TrimSpace(output)
 	h.Metadata.NeedsUpgrade = false
-	log.Infof("%s: K3s cluster initialized", h)
+	slog.Info(fmt.Sprintf("%s: K3s cluster initialized", h))
 
 	return nil
 }

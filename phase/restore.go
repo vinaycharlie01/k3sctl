@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"log/slog"
+
 	"github.com/k0sproject/rig/v2/remotefs"
-	log "github.com/sirupsen/logrus"
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -49,7 +50,7 @@ func (p *Restore) Run(_ context.Context) error {
 
 	remotePath := fmt.Sprintf("%s/restore-snapshot.db", tmpDir)
 
-	log.Infof("%s: uploading snapshot from %s", h, p.RestoreFrom)
+	slog.Info(fmt.Sprintf("%s: uploading snapshot from %s", h, p.RestoreFrom))
 	if err := remotefs.Upload(h.Sudo().FS(), p.RestoreFrom, remotePath); err != nil {
 		return fmt.Errorf("%s: upload snapshot: %w", h, err)
 	}
@@ -59,11 +60,11 @@ func (p *Restore) Run(_ context.Context) error {
 		shellQuote(remotePath),
 	)
 
-	log.Infof("%s: restoring from snapshot", h)
+	slog.Info(fmt.Sprintf("%s: restoring from snapshot", h))
 	if err := h.Sudo().Exec(cmd); err != nil {
 		return fmt.Errorf("%s: restore snapshot: %w", h, err)
 	}
 
-	log.Infof("%s: K3s restored from snapshot", h)
+	slog.Info(fmt.Sprintf("%s: K3s restored from snapshot", h))
 	return nil
 }

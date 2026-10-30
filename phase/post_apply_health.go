@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -37,11 +38,11 @@ func (p *PostApplyHealthCheck) Run(ctx context.Context) error {
 
 	leader := p.Config.Spec.K3sLeader()
 	if leader == nil || !leader.Metadata.K3sServiceRunning {
-		log.Warnf("no running leader found, skipping health verification")
+		slog.Warn("no running leader found, skipping health verification")
 		return nil
 	}
 
-	log.Infof("verifying cluster health (timeout: %s)", timeout)
+	slog.Info(fmt.Sprintf("verifying cluster health (timeout: %s)", timeout))
 
 	if err := p.waitForAPIServer(ctx, leader); err != nil {
 		return fmt.Errorf("API server health check failed: %w", err)
@@ -51,12 +52,12 @@ func (p *PostApplyHealthCheck) Run(ctx context.Context) error {
 		return fmt.Errorf("node readiness check failed: %w", err)
 	}
 
-	log.Infof("cluster health verification passed")
+	slog.Info("cluster health verification passed")
 	return nil
 }
 
 func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, leader *cluster.Host) error {
-	log.Infof("%s: waiting for API server", leader)
+	slog.Info(fmt.Sprintf("%s: waiting for API server", leader))
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,7 +68,7 @@ func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, leader *clu
 		cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(), "get --raw /healthz 2>/dev/null")
 		output, err := leader.Sudo().ExecOutput(cmd)
 		if err == nil && strings.TrimSpace(output) == "ok" {
-			log.Infof("%s: API server healthy", leader)
+			slog.Info(fmt.Sprintf("%s: API server healthy", leader))
 			return nil
 		}
 
@@ -77,7 +78,7 @@ func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, leader *clu
 
 func (p *PostApplyHealthCheck) waitForNodes(ctx context.Context, leader *cluster.Host) error {
 	expected := p.Config.Spec.Hosts.Count()
-	log.Infof("waiting for %d node(s) to be ready", expected)
+	slog.Info(fmt.Sprintf("waiting for %d node(s) to be ready", expected))
 
 	for {
 		select {
@@ -91,9 +92,9 @@ func (p *PostApplyHealthCheck) waitForNodes(ctx context.Context, leader *cluster
 		output, err := leader.Sudo().ExecOutput(cmd)
 		if err == nil {
 			count := strings.TrimSpace(output)
-			log.Debugf("ready nodes: %s/%d", count, expected)
+			slog.Debug(fmt.Sprintf("ready nodes: %s/%d", count, expected))
 			if count == fmt.Sprintf("%d", expected) {
-				log.Infof("all %d nodes are ready", expected)
+				slog.Info(fmt.Sprintf("all %d nodes are ready", expected))
 				return nil
 			}
 		}

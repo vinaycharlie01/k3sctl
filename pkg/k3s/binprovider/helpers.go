@@ -6,8 +6,9 @@ import (
 	"io/fs"
 	"path/filepath"
 
+	"log/slog"
+
 	"github.com/k0sproject/rig/v2/remotefs"
-	log "github.com/sirupsen/logrus"
 )
 
 type stagedFile struct {
@@ -25,7 +26,7 @@ func (s *stagedFile) CleanUp(ctx context.Context) error {
 	if s.path == "" {
 		return nil
 	}
-	log.Debugf("%s: cleaning up staged binary at %s", s.host, s.path)
+	slog.Debug(fmt.Sprintf("%s: cleaning up staged binary at %s", s.host, s.path))
 	return s.host.DeleteFile(s.path)
 }
 
@@ -42,7 +43,7 @@ func stageTempPath(version string) string {
 }
 
 func stageUpload(ctx context.Context, host Host, localPath, remotePath string) error {
-	log.Infof("%s: uploading k3s binary from %s", host, localPath)
+	slog.Info(fmt.Sprintf("%s: uploading k3s binary from %s", host, localPath))
 	if err := host.Sudo().FS().MkdirAll(filepath.Dir(remotePath), fs.FileMode(0755)); err != nil {
 		return fmt.Errorf("create directory for binary: %w", err)
 	}
@@ -51,6 +52,6 @@ func stageUpload(ctx context.Context, host Host, localPath, remotePath string) e
 }
 
 func stageDownload(ctx context.Context, host Host, url, remotePath string) error {
-	log.Infof("%s: downloading k3s binary from %s", host, url)
+	slog.Info(fmt.Sprintf("%s: downloading k3s binary from %s", host, url))
 	return host.DownloadURL(url, remotePath)
 }

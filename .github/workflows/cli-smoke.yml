@@ -163,7 +163,7 @@ jobs:
 
           # A failed command must report a reason, never exit silently.
           [ -s missing.log ] || fail "failed command produced no output at all"
-          grep -q 'level=error' missing.log || fail "failed command did not log an error"
+          grep -qi 'level=error' missing.log || fail "failed command did not log an error"
           pass "failures are reported to the user"
 
       - name: Upload smoke artifacts

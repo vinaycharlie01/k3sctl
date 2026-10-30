@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
@@ -33,7 +34,7 @@ func (p *Lock) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: acquire lock: %w", h, err)
 		}
 
-		log.Debugf("%s: acquired lock", h)
+		slog.Debug(fmt.Sprintf("%s: acquired lock", h))
 		return nil
 	})
 }
