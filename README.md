@@ -1,7 +1,7 @@
 # k3sctl
 
 <p align="center">
-  <img src="docs/images/k3sctlogo.png" alt="k3sctl logo" width="240">
+  <img src="docs/images/k3sctlogo.png" alt="k3sctl logo" width="520">
 </p>
 
 `k3sctl` is a declarative lifecycle management tool for [K3s](https://k3s.io)
