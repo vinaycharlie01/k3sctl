@@ -1,5 +1,9 @@
 # k3sctl
 
+<p align="center">
+  <img src="docs/images/k3sctlogo.png" alt="k3sctl logo" width="240">
+</p>
+
 `k3sctl` is a declarative lifecycle management tool for [K3s](https://k3s.io)
 clusters, created and inspired by [k0sctl](https://github.com/k0sproject/k0sctl). Point it
 at a YAML file describing your hosts and it will install, upgrade, reconfigure,
