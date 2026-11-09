@@ -30,10 +30,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.54.0
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.40.1
 
       - name: Build CLI
         run: task build

@@ -9,9 +9,9 @@ import (
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/node"
-	"github.com/vinaycharlie01/k3sctl/pkg/retry"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/node"
+	"github.com/nirantarasi/k3sctl/pkg/retry"
 )
 
 type InstallServers struct {
@@ -169,7 +169,14 @@ func (p *InstallServers) installServer(ctx context.Context, h *cluster.Host) err
 	}
 
 	slog.Info(fmt.Sprintf("%s: waiting for K3s server to be ready", h))
-	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
+	kc, kcErr := kubeClientOrBuild(p.Config.Metadata.KubeClient, p.leader)
+	if kcErr != nil {
+		return fmt.Errorf("%s: build kube client: %w", h, kcErr)
+	}
+	if p.Config.Metadata.KubeClient == nil {
+		p.Config.Metadata.KubeClient = kc
+	}
+	if err := retry.Context(ctx, node.KubeNodeReadyFunc(kc, h.KubernetesNodeName()),
 		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
 		return fmt.Errorf("%s: wait for ready: %w", h, err)
 	}

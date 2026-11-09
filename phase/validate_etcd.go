@@ -2,13 +2,13 @@ package phase
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/etcd"
 )
 
 type ValidateEtcdMembers struct {
@@ -59,25 +59,25 @@ func (p *ValidateEtcdMembers) Run(ctx context.Context) error {
 	}
 
 	servers := p.Config.Spec.Hosts.Servers()
+	kc := p.Config.Metadata.KubeClient
 	return p.parallelDo(ctx, servers, func(ctx context.Context, h *cluster.Host) error {
 		if h == p.leader {
 			return nil
 		}
 
-		output, err := h.Sudo().ExecOutput(
-			fmt.Sprintf("%s kubectl get node %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null || echo 'unknown'",
-				shellQuote(h.K3sBinaryDir()), shellQuote(h.Metadata.Hostname)),
-		)
-		if err != nil {
-			slog.Warn(fmt.Sprintf("%s: could not check node readiness: %v", h, err))
-			return nil
-		}
-
-		output = strings.Trim(output, "'")
-		if output != "True" {
-			slog.Warn(fmt.Sprintf("%s: node is not ready (status: %s)", h, output))
+		if kc != nil {
+			ready, err := kc.IsNodeReady(ctx, h.Metadata.Hostname)
+			if err != nil {
+				slog.Warn(fmt.Sprintf("%s: could not check node readiness: %v", h, err))
+				return nil
+			}
+			if !ready {
+				slog.Warn(fmt.Sprintf("%s: node is not ready", h))
+			} else {
+				slog.Info(fmt.Sprintf("%s: node is ready", h))
+			}
 		} else {
-			slog.Info(fmt.Sprintf("%s: node is ready", h))
+			slog.Warn(fmt.Sprintf("%s: no kubernetes client available, skipping node readiness check", h))
 		}
 
 		return nil
@@ -85,40 +85,28 @@ func (p *ValidateEtcdMembers) Run(ctx context.Context) error {
 }
 
 // validateMembers checks the actual etcd member list against the configured
-// server hosts. If a member's peer address does not match any known server,
-// it is flagged as stale. With Force enabled, stale members are removed
-// automatically; otherwise an error is returned.
-//
-// Uses the etcd v3 gRPC gateway REST API via curl, because K3s does not
-// bundle a standalone etcdctl binary.
+// server hosts using the native etcd v3 client. If a member's peer address
+// does not match any known server, it is flagged as stale. With Force
+// enabled, stale members are removed automatically; otherwise an error is
+// returned.
 func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
-	const etcdCurlBase = "curl -sf --connect-timeout 10 " +
-		"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt " +
-		"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt " +
-		"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key " +
-		"-H 'Content-Type: application/json' "
+	ec, err := etcdClientOrBuild(ctx, p.Config.Metadata.EtcdClient, p.leader)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("%s: could not connect to etcd, skipping stale member check: %v", p.leader, err))
+		return nil
+	}
+	if p.Config.Metadata.EtcdClient == nil {
+		p.Config.Metadata.EtcdClient = ec
+	}
 
-	memberOutput, err := p.leader.Sudo().ExecOutput(
-		etcdCurlBase + "-d '{}' https://127.0.0.1:2379/v3/cluster/member/list 2>/dev/null || true",
-	)
+	members, err := ec.MemberList(ctx)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("%s: could not list etcd members, skipping stale member check: %v", p.leader, err))
 		return nil
 	}
 
-	if strings.TrimSpace(memberOutput) == "" {
-		slog.Debug(fmt.Sprintf("%s: empty etcd member list, skipping stale check", p.leader))
-		return nil
-	}
-
-	var resp etcdMemberListResponse
-	if err := json.Unmarshal([]byte(memberOutput), &resp); err != nil {
-		slog.Warn(fmt.Sprintf("%s: could not parse etcd member list JSON, skipping stale check: %v", p.leader, err))
-		return nil
-	}
-
 	knownAddrs := p.knownServerAddresses()
-	staleMembers := findStaleMembersFromAPI(resp.Members, knownAddrs)
+	staleMembers := etcd.FindStaleMembers(members, knownAddrs)
 	if len(staleMembers) == 0 {
 		slog.Info(fmt.Sprintf("%s: all etcd members match configured hosts", p.leader))
 		return nil
@@ -126,7 +114,11 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 
 	slog.Warn(fmt.Sprintf("%s: found %d stale etcd member(s)", p.leader, len(staleMembers)))
 	for _, sm := range staleMembers {
-		slog.Warn(fmt.Sprintf("  stale member: id=%s peer=%s", sm.id, sm.peerURL))
+		peerURL := ""
+		if len(sm.PeerURLs) > 0 {
+			peerURL = sm.PeerURLs[0]
+		}
+		slog.Warn(fmt.Sprintf("  stale member: id=%x peer=%s", sm.ID, peerURL))
 	}
 
 	if !p.Force {
@@ -137,15 +129,15 @@ func (p *ValidateEtcdMembers) validateMembers(ctx context.Context) error {
 	}
 
 	for _, sm := range staleMembers {
-		slog.Info(fmt.Sprintf("%s: removing stale etcd member %s (%s)", p.leader, sm.id, sm.peerURL))
-		removeCmd := fmt.Sprintf(
-			etcdCurlBase+"-X POST -d '{\"ID\":\"%s\"}' https://127.0.0.1:2379/v3/cluster/member/remove",
-			sm.id,
-		)
-		if err := p.leader.Sudo().Exec(removeCmd); err != nil {
-			return fmt.Errorf("%s: failed to remove stale etcd member %s: %w", p.leader, sm.id, err)
+		peerURL := ""
+		if len(sm.PeerURLs) > 0 {
+			peerURL = sm.PeerURLs[0]
 		}
-		slog.Info(fmt.Sprintf("%s: removed stale etcd member %s", p.leader, sm.id))
+		slog.Info(fmt.Sprintf("%s: removing stale etcd member %x (%s)", p.leader, sm.ID, peerURL))
+		if err := ec.MemberRemove(ctx, sm.ID); err != nil {
+			return fmt.Errorf("%s: failed to remove stale etcd member %x: %w", p.leader, sm.ID, err)
+		}
+		slog.Info(fmt.Sprintf("%s: removed stale etcd member %x", p.leader, sm.ID))
 	}
 
 	return nil
@@ -162,47 +154,6 @@ func (p *ValidateEtcdMembers) knownServerAddresses() map[string]bool {
 		}
 	}
 	return addrs
-}
-
-// etcdMemberListResponse is the JSON response from the etcd v3 gRPC gateway
-// POST /v3/cluster/member/list endpoint.
-type etcdMemberListResponse struct {
-	Members []etcdAPIMember `json:"members"`
-}
-
-type etcdAPIMember struct {
-	ID       json.Number `json:"ID"`
-	Name     string      `json:"name"`
-	PeerURLs []string    `json:"peerURLs"`
-}
-
-type staleMember struct {
-	id      string
-	peerURL string
-}
-
-// findStaleMembersFromAPI checks the parsed etcd member list and returns
-// members whose peer URLs do not contain any of the known addresses.
-func findStaleMembersFromAPI(members []etcdAPIMember, knownAddrs map[string]bool) []staleMember {
-	var stale []staleMember
-	for _, m := range members {
-		peerURL := ""
-		if len(m.PeerURLs) > 0 {
-			peerURL = m.PeerURLs[0]
-		}
-
-		found := false
-		for addr := range knownAddrs {
-			if strings.Contains(peerURL, addr) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			stale = append(stale, staleMember{id: m.ID.String(), peerURL: peerURL})
-		}
-	}
-	return stale
 }
 
 func firstLine(s string) string {

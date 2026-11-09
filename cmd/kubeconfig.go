@@ -5,8 +5,8 @@ import (
 
 	"log/slog"
 
+	"github.com/nirantarasi/k3sctl/action"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/action"
 )
 
 func kubeconfigCommand() *cli.Command {
@@ -33,6 +33,7 @@ func kubeconfigCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			applyLoggingConfig(cfg)
 
 			m := action.Kubeconfig(action.KubeconfigOptions{
 				Out:        os.Stdout,

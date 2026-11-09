@@ -7,11 +7,12 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/vinaycharlie01/k3sctl/version.Version={{.Version}}
-      - -X github.com/vinaycharlie01/k3sctl/version.GitCommit={{.ShortCommit}}
+      - -X github.com/nirantarasi/k3sctl/version.Version={{.Version}}
+      - -X github.com/nirantarasi/k3sctl/version.GitCommit={{.ShortCommit}}
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -19,17 +20,47 @@ builds:
     goarm:
       - "7"
     ignore:
-      # k3s publishes linux/amd64, linux/arm64 and linux/armhf only; macOS
-      # has no 32-bit arm build.
       - goos: darwin
+        goarch: arm
+      - goos: windows
         goarch: arm
 
 archives:
   - format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
 
 checksum:
   name_template: checksums.txt
+
+brews:
+  - repository:
+      owner: nirantarasi
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/nirantarasi/k3sctl"
+    description: "CLI tool to manage k3s Kubernetes clusters"
+    license: "MIT"
+    install: |
+      bin.install "k3sctl"
+    test: |
+      system "#{bin}/k3sctl", "version"
+
+nfpms:
+  - id: k3sctl
+    package_name: k3sctl
+    homepage: "https://github.com/nirantarasi/k3sctl"
+    maintainer: "nirantarasi <vinaykumaree5@gmail.com>"
+    description: "CLI tool to manage k3s Kubernetes clusters"
+    license: MIT
+    formats:
+      - apk
+      - deb
+      - rpm
+    bindir: /usr/bin
+
 
 changelog:
   sort: asc

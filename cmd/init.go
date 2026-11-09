@@ -14,6 +14,10 @@ metadata:
   name: {{ .Name }}
 spec:
   hosts:
+{{- if .Localhost }}
+  - localhost: true
+    role: server
+{{- else }}
   - role: server
     ssh:
       address: {{ .Address }}
@@ -28,6 +32,7 @@ spec:
       port: {{ .Port }}
       keyPath: {{ .KeyPath }}
 {{- end }}
+{{- end }}
   k3s:
     version: "{{ .Version }}"
 `
@@ -41,6 +46,7 @@ type initData struct {
 	KeyPath      string
 	Version      string
 	Agent        bool
+	Localhost    bool
 }
 
 func initCommand() *cli.Command {
@@ -52,6 +58,10 @@ func initCommand() *cli.Command {
 				Name:  "name",
 				Usage: "Cluster name",
 				Value: "k3s-cluster",
+			},
+			&cli.BoolFlag{
+				Name:  "localhost",
+				Usage: "Generate a single-node localhost config (no SSH)",
 			},
 			&cli.StringFlag{
 				Name:  "address",
@@ -88,6 +98,12 @@ func initCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
+			localhost := ctx.Bool("localhost")
+
+			if localhost && ctx.Bool("agent") {
+				return fmt.Errorf("--localhost and --agent cannot be used together; localhost mode is single-node only")
+			}
+
 			data := initData{
 				Name:         ctx.String("name"),
 				Address:      ctx.String("address"),
@@ -97,6 +113,7 @@ func initCommand() *cli.Command {
 				Version:      ctx.String("k3s-version"),
 				Agent:        ctx.Bool("agent"),
 				AgentAddress: ctx.String("agent-address"),
+				Localhost:    localhost,
 			}
 
 			tmpl, err := template.New("init").Parse(initTemplate)

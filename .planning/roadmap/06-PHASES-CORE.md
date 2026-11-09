@@ -15,9 +15,9 @@
   - Import paths: `k3sctl/configurer` and subpackages
   - Blank imports for OS modules:
     ```go
-    _ "github.com/vinaycharlie01/k3sctl/configurer"
-    _ "github.com/vinaycharlie01/k3sctl/configurer/linux"
-    _ "github.com/vinaycharlie01/k3sctl/configurer/linux/enterpriselinux"
+    _ "github.com/nirantarasi/k3sctl/configurer"
+    _ "github.com/nirantarasi/k3sctl/configurer/linux"
+    _ "github.com/nirantarasi/k3sctl/configurer/linux/enterpriselinux"
     ```
   - Remove Windows import: ~~`_ "k0sctl/configurer/windows"`~~
   - `SetPath("K0sBinaryPath", ...)` → `SetPath("K3sBinaryPath", ...)`

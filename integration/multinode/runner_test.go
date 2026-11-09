@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
-	envmocks "github.com/vinaycharlie01/k3sctl/integration/environment/mocks"
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
-	mnodemocks "github.com/vinaycharlie01/k3sctl/integration/multinode/mocks"
+	"github.com/nirantarasi/k3sctl/integration/environment"
+	envmocks "github.com/nirantarasi/k3sctl/integration/environment/mocks"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
+	mnodemocks "github.com/nirantarasi/k3sctl/integration/multinode/mocks"
 )
 
 const (

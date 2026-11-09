@@ -4,10 +4,15 @@ import (
 	"fmt"
 )
 
+type LoggingConfig struct {
+	Format string `yaml:"format,omitempty"`
+}
+
 type Spec struct {
-	Hosts   Hosts    `yaml:"hosts" validate:"required,min=1"`
-	K3s     *K3s     `yaml:"k3s,omitempty"`
-	Options *Options `yaml:"options,omitempty"`
+	Hosts   Hosts          `yaml:"hosts" validate:"required,min=1"`
+	K3s     *K3s           `yaml:"k3s,omitempty"`
+	Options *Options       `yaml:"options,omitempty"`
+	Logging *LoggingConfig `yaml:"logging,omitempty"`
 }
 
 func (s *Spec) SetDefaults() {

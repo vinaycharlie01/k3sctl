@@ -2,57 +2,29 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 
-	"github.com/k0sproject/rig/v2/cmd"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/k8s"
 )
 
 type retryFunc func(context.Context) error
 
-type kubeNodeStatus struct {
-	Status struct {
-		Conditions []struct {
-			Status string `json:"status"`
-			Type   string `json:"type"`
-		} `json:"conditions"`
-	} `json:"status"`
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
 // KubeNodeReadyFunc returns a retry function that reports whether the named
-// node has the Ready condition set. Kubectl is always executed on the leader,
-// because agents do not have a usable kubeconfig.
-func KubeNodeReadyFunc(leader *cluster.Host, nodeName string) retryFunc {
-	return func(_ context.Context) error {
-		if leader == nil {
-			return fmt.Errorf("no leader host available for kubectl")
+// node has the Ready condition set, using the Kubernetes API via client-go.
+func KubeNodeReadyFunc(kc k8s.Client, nodeName string) retryFunc {
+	return func(ctx context.Context) error {
+		if kc == nil {
+			return fmt.Errorf("no kubernetes client available")
 		}
-		if nodeName == "" {
-			nodeName = leader.KubernetesNodeName()
-		}
-		output, err := leader.Sudo().ExecOutput(leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(), "get node %s -o json", shellQuote(nodeName)), cmd.HideOutput())
+		ready, err := kc.IsNodeReady(ctx, nodeName)
 		if err != nil {
 			return fmt.Errorf("failed to get node status: %w", err)
 		}
-		status := &kubeNodeStatus{}
-		if err := json.Unmarshal([]byte(output), status); err != nil {
-			return fmt.Errorf("failed to decode kubectl get node status output: %w", err)
+		if !ready {
+			return fmt.Errorf("node %s is not ready", nodeName)
 		}
-		for _, c := range status.Status.Conditions {
-			if c.Type == "Ready" {
-				if c.Status == "True" {
-					return nil
-				}
-				return fmt.Errorf("node %s is not ready", nodeName)
-			}
-		}
-		return fmt.Errorf("node %s 'Ready' condition not found", nodeName)
+		return nil
 	}
 }
 

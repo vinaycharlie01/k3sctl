@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/remotefs"
-	"github.com/vinaycharlie01/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/configurer"
 )
 
 type FakeHost struct {

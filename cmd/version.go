@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/nirantarasi/k3sctl/integration/github"
+	"github.com/nirantarasi/k3sctl/version"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/integration/github"
-	"github.com/vinaycharlie01/k3sctl/version"
 )
 
 func versionCommand() *cli.Command {

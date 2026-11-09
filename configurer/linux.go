@@ -73,19 +73,6 @@ func (l *Linux) K3sCmdf(template string, args ...any) string {
 	return fmt.Sprintf("%s %s", l.K3sBinaryPath(), fmt.Sprintf(template, args...))
 }
 
-func (l *Linux) KubeconfigPath(_ Host, _ string) string {
-	return "/etc/rancher/k3s/k3s.yaml"
-}
-
-func (l *Linux) KubectlCmdf(h Host, dataDir, s string, args ...any) string {
-	kubecfg := l.KubeconfigPath(h, dataDir)
-	formatted := fmt.Sprintf(s, args...)
-	if !strings.Contains(formatted, "--kubeconfig") {
-		formatted = formatted + " --kubeconfig=" + kubecfg
-	}
-	return l.K3sCmdf("kubectl %s", formatted)
-}
-
 func (l *Linux) PrivateInterface(h Host) (string, error) {
 	output, err := h.ExecOutput("ip -o route show scope link | head -1 | sed -e 's/.* dev //' -e 's/ .*//'")
 	if err != nil {

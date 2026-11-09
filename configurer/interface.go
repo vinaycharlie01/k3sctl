@@ -11,8 +11,6 @@ type Configurer interface {
 	K3sDataDirDefaultPath() string
 	K3sTokenPath() string
 	UpdateEnvironment(h Host, env map[string]string) error
-	KubectlCmdf(h Host, dataDir string, s string, args ...any) string
-	KubeconfigPath(h Host, dataDir string) string
 	FixContainer(h Host) error
 	PrivateInterface(h Host) (string, error)
 	PrivateAddress(h Host, iface, publicIP string) (string, error)

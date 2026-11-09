@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/phase"
-	"github.com/vinaycharlie01/k3sctl/phase/mocks"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/nirantarasi/k3sctl/phase"
+	"github.com/nirantarasi/k3sctl/phase/mocks"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
 )
 
 func newTitledPhase(title string) *mocks.FakePhase {

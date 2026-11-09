@@ -16,7 +16,8 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
-	"github.com/vinaycharlie01/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/pkg/k8s"
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeBinaryProvider -o ./mocks/fake_binary_provider.go . BinaryProvider
@@ -104,6 +105,7 @@ type HostMetadata struct {
 	KubernetesNodeName     string
 	NeedsUpgrade           bool
 	NeedsReinstall         bool
+	NeedsConfigRestart     bool
 	BinaryProvider         BinaryProvider
 }
 
@@ -253,7 +255,7 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func (h *Host) DrainNode(leader *Host, opts *DrainOption) error {
+func (h *Host) DrainNode(ctx context.Context, kc k8s.Client, opts *DrainOption) error {
 	if opts == nil {
 		opts = (&Options{}).GetDrainOptions()
 	}
@@ -262,30 +264,25 @@ func (h *Host) DrainNode(leader *Host, opts *DrainOption) error {
 		return nil
 	}
 	slog.Info(fmt.Sprintf("%s: draining node", h))
-	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"drain %s %s", shellQuote(h.KubernetesNodeName()), opts.ToKubectlArgs())
-	return leader.Sudo().Exec(cmd)
+	return kc.DrainNode(ctx, h.KubernetesNodeName(), k8s.DrainOptionsFromCluster(
+		opts.Enabled, opts.Timeout, opts.GracePeriod,
+		opts.DeleteEmptyDir, opts.IgnoreDaemonSets, opts.DisableEviction,
+	))
 }
 
-func (h *Host) UncordonNode(leader *Host) error {
+func (h *Host) UncordonNode(ctx context.Context, kc k8s.Client) error {
 	slog.Info(fmt.Sprintf("%s: uncordoning node", h))
-	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"uncordon %s", shellQuote(h.KubernetesNodeName()))
-	return leader.Sudo().Exec(cmd)
+	return kc.UncordonNode(ctx, h.KubernetesNodeName())
 }
 
-func (h *Host) CordonNode(leader *Host) error {
+func (h *Host) CordonNode(ctx context.Context, kc k8s.Client) error {
 	slog.Info(fmt.Sprintf("%s: cordoning node", h))
-	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"cordon %s", shellQuote(h.KubernetesNodeName()))
-	return leader.Sudo().Exec(cmd)
+	return kc.CordonNode(ctx, h.KubernetesNodeName())
 }
 
-func (h *Host) DeleteNode(leader *Host) error {
+func (h *Host) DeleteNode(ctx context.Context, kc k8s.Client) error {
 	slog.Info(fmt.Sprintf("%s: deleting node from cluster", h))
-	cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-		"delete node %s --ignore-not-found=true", shellQuote(h.KubernetesNodeName()))
-	return leader.Sudo().Exec(cmd)
+	return kc.DeleteNode(ctx, h.KubernetesNodeName())
 }
 
 func (h *Host) CheckHTTPStatus(ctx context.Context, url string, expected ...int) error {
@@ -403,5 +400,5 @@ func (h *Host) OSKind() (string, error) {
 }
 
 func (h *Host) DownloadURL(url, dest string) error {
-	return h.Sudo().Exec(fmt.Sprintf("curl -sSfL -o %s %s", shellQuote(dest), shellQuote(url)))
+	return h.Sudo().Exec(fmt.Sprintf("curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors -o %s %s", shellQuote(dest), shellQuote(url)))
 }

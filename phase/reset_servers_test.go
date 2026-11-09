@@ -3,9 +3,9 @@ package phase
 import (
 	"testing"
 
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/stretchr/testify/assert"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 func TestResetServers_Prepare(t *testing.T) {
@@ -50,25 +50,4 @@ func TestResetServers_LeaderExcluded(t *testing.T) {
 	p.Prepare()
 
 	assert.Empty(t, p.hosts, "leader should not be included in reset hosts")
-}
-
-func TestFindEtcdMemberID(t *testing.T) {
-	memberList := `8e9e05c52164694d, started, server-1, https://10.0.0.1:2380, https://10.0.0.1:2379, false
-3a1b2c3d4e5f6a7b, started, server-2, https://10.0.0.2:2380, https://10.0.0.2:2379, false
-a1b2c3d4e5f6a7b8, started, server-3, https://10.0.0.3:2380, https://10.0.0.3:2379, false`
-
-	t.Run("finds matching member", func(t *testing.T) {
-		id := findEtcdMemberID(memberList, "10.0.0.2")
-		assert.Equal(t, "3a1b2c3d4e5f6a7b", id)
-	})
-
-	t.Run("returns empty for unknown address", func(t *testing.T) {
-		id := findEtcdMemberID(memberList, "10.0.0.99")
-		assert.Empty(t, id)
-	})
-
-	t.Run("handles empty output", func(t *testing.T) {
-		id := findEtcdMemberID("", "10.0.0.1")
-		assert.Empty(t, id)
-	})
 }

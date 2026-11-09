@@ -1,13 +1,12 @@
 package phase
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/protocol/ssh"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 	"github.com/stretchr/testify/assert"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 func TestValidateEtcdMembers_Prepare(t *testing.T) {
@@ -54,49 +53,6 @@ func TestValidateEtcdMembers_ShouldRun(t *testing.T) {
 		}}
 		p.Prepare()
 		assert.True(t, p.ShouldRun())
-	})
-}
-
-func TestFindStaleMembersFromAPI(t *testing.T) {
-	members := []etcdAPIMember{
-		{ID: json.Number("8e9e05c52164694d"), Name: "server-1", PeerURLs: []string{"https://10.0.0.1:2380"}},
-		{ID: json.Number("3a1b2c3d4e5f6a7b"), Name: "server-2", PeerURLs: []string{"https://10.0.0.2:2380"}},
-		{ID: json.Number("a1b2c3d4e5f6a7b8"), Name: "server-old", PeerURLs: []string{"https://10.0.0.99:2380"}},
-	}
-
-	known := map[string]bool{
-		"10.0.0.1": true,
-		"10.0.0.2": true,
-	}
-
-	t.Run("detects stale member", func(t *testing.T) {
-		stale := findStaleMembersFromAPI(members, known)
-		assert.Len(t, stale, 1)
-		assert.Equal(t, "a1b2c3d4e5f6a7b8", stale[0].id)
-		assert.Contains(t, stale[0].peerURL, "10.0.0.99")
-	})
-
-	t.Run("no stale when all known", func(t *testing.T) {
-		allKnown := map[string]bool{
-			"10.0.0.1":  true,
-			"10.0.0.2":  true,
-			"10.0.0.99": true,
-		}
-		stale := findStaleMembersFromAPI(members, allKnown)
-		assert.Empty(t, stale)
-	})
-
-	t.Run("empty members", func(t *testing.T) {
-		stale := findStaleMembersFromAPI(nil, known)
-		assert.Empty(t, stale)
-	})
-
-	t.Run("member with no peer URLs", func(t *testing.T) {
-		noPeers := []etcdAPIMember{
-			{ID: json.Number("123"), Name: "orphan", PeerURLs: nil},
-		}
-		stale := findStaleMembersFromAPI(noPeers, known)
-		assert.Len(t, stale, 1)
 	})
 }
 

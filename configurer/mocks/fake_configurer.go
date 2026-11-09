@@ -4,7 +4,7 @@ package mocks
 import (
 	"sync"
 
-	"github.com/vinaycharlie01/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/configurer"
 )
 
 type FakeConfigurer struct {
@@ -89,24 +89,6 @@ type FakeConfigurer struct {
 	kindReturnsOnCall map[int]struct {
 		result1 string
 	}
-	KubeconfigPathStub        func(configurer.Host, string) string
-	kubeconfigPathMutex       sync.RWMutex
-	kubeconfigPathArgsForCall []FakeConfigurerKubeconfigPathArgs
-	kubeconfigPathReturns     struct {
-		result1 string
-	}
-	kubeconfigPathReturnsOnCall map[int]struct {
-		result1 string
-	}
-	KubectlCmdfStub        func(configurer.Host, string, string, ...any) string
-	kubectlCmdfMutex       sync.RWMutex
-	kubectlCmdfArgsForCall []FakeConfigurerKubectlCmdfArgs
-	kubectlCmdfReturns     struct {
-		result1 string
-	}
-	kubectlCmdfReturnsOnCall map[int]struct {
-		result1 string
-	}
 	OSKindStub        func() string
 	oSKindMutex       sync.RWMutex
 	oSKindArgsForCall []struct{}
@@ -164,20 +146,6 @@ type FakeConfigurerFixContainerArgs struct {
 type FakeConfigurerK3sCmdfArgs struct {
 	Arg1 string
 	Arg2 []any
-}
-
-// FakeConfigurerKubeconfigPathArgs holds the arguments of one call to KubeconfigPath.
-type FakeConfigurerKubeconfigPathArgs struct {
-	Arg1 configurer.Host
-	Arg2 string
-}
-
-// FakeConfigurerKubectlCmdfArgs holds the arguments of one call to KubectlCmdf.
-type FakeConfigurerKubectlCmdfArgs struct {
-	Arg1 configurer.Host
-	Arg2 string
-	Arg3 string
-	Arg4 []any
 }
 
 // FakeConfigurerPrivateAddressArgs holds the arguments of one call to PrivateAddress.
@@ -703,145 +671,6 @@ func (fake *FakeConfigurer) KindReturnsOnCall(i int, result1 string) {
 		})
 	}
 	fake.kindReturnsOnCall[i] = struct {
-		result1 string
-	}{result1}
-}
-
-func (fake *FakeConfigurer) KubeconfigPath(arg1 configurer.Host, arg2 string) string {
-	fake.kubeconfigPathMutex.Lock()
-	ret, specificReturn := fake.kubeconfigPathReturnsOnCall[len(fake.kubeconfigPathArgsForCall)]
-	fake.kubeconfigPathArgsForCall = append(fake.kubeconfigPathArgsForCall, FakeConfigurerKubeconfigPathArgs{arg1, arg2})
-	stub := fake.KubeconfigPathStub
-	fakeReturns := fake.kubeconfigPathReturns
-	fake.recordInvocation("KubeconfigPath", []interface{}{arg1, arg2})
-	fake.kubeconfigPathMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeConfigurer) KubeconfigPathCallCount() int {
-	fake.kubeconfigPathMutex.RLock()
-	defer fake.kubeconfigPathMutex.RUnlock()
-	return len(fake.kubeconfigPathArgsForCall)
-}
-
-func (fake *FakeConfigurer) KubeconfigPathCalls(stub func(configurer.Host, string) string) {
-	fake.kubeconfigPathMutex.Lock()
-	defer fake.kubeconfigPathMutex.Unlock()
-	fake.KubeconfigPathStub = stub
-}
-
-func (fake *FakeConfigurer) KubeconfigPathArgsForCall(i int) (configurer.Host, string) {
-	fake.kubeconfigPathMutex.RLock()
-	defer fake.kubeconfigPathMutex.RUnlock()
-	argsForCall := fake.kubeconfigPathArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2
-}
-
-func (fake *FakeConfigurer) KubeconfigPathArgs() []FakeConfigurerKubeconfigPathArgs {
-	fake.kubeconfigPathMutex.RLock()
-	defer fake.kubeconfigPathMutex.RUnlock()
-	args := make([]FakeConfigurerKubeconfigPathArgs, len(fake.kubeconfigPathArgsForCall))
-	copy(args, fake.kubeconfigPathArgsForCall)
-	return args
-}
-
-func (fake *FakeConfigurer) KubeconfigPathReturns(result1 string) {
-	fake.kubeconfigPathMutex.Lock()
-	defer fake.kubeconfigPathMutex.Unlock()
-	fake.KubeconfigPathStub = nil
-	fake.kubeconfigPathReturns = struct {
-		result1 string
-	}{result1}
-}
-
-func (fake *FakeConfigurer) KubeconfigPathReturnsOnCall(i int, result1 string) {
-	fake.kubeconfigPathMutex.Lock()
-	defer fake.kubeconfigPathMutex.Unlock()
-	fake.KubeconfigPathStub = nil
-	if fake.kubeconfigPathReturnsOnCall == nil {
-		fake.kubeconfigPathReturnsOnCall = make(map[int]struct {
-			result1 string
-		})
-	}
-	fake.kubeconfigPathReturnsOnCall[i] = struct {
-		result1 string
-	}{result1}
-}
-
-func (fake *FakeConfigurer) KubectlCmdf(arg1 configurer.Host, arg2 string, arg3 string, arg4 ...any) string {
-	var arg4Copy []any
-	if arg4 != nil {
-		arg4Copy = make([]any, len(arg4))
-		copy(arg4Copy, arg4)
-	}
-	fake.kubectlCmdfMutex.Lock()
-	ret, specificReturn := fake.kubectlCmdfReturnsOnCall[len(fake.kubectlCmdfArgsForCall)]
-	fake.kubectlCmdfArgsForCall = append(fake.kubectlCmdfArgsForCall, FakeConfigurerKubectlCmdfArgs{arg1, arg2, arg3, arg4Copy})
-	stub := fake.KubectlCmdfStub
-	fakeReturns := fake.kubectlCmdfReturns
-	fake.recordInvocation("KubectlCmdf", []interface{}{arg1, arg2, arg3, arg4Copy})
-	fake.kubectlCmdfMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4...)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeConfigurer) KubectlCmdfCallCount() int {
-	fake.kubectlCmdfMutex.RLock()
-	defer fake.kubectlCmdfMutex.RUnlock()
-	return len(fake.kubectlCmdfArgsForCall)
-}
-
-func (fake *FakeConfigurer) KubectlCmdfCalls(stub func(configurer.Host, string, string, ...any) string) {
-	fake.kubectlCmdfMutex.Lock()
-	defer fake.kubectlCmdfMutex.Unlock()
-	fake.KubectlCmdfStub = stub
-}
-
-func (fake *FakeConfigurer) KubectlCmdfArgsForCall(i int) (configurer.Host, string, string, []any) {
-	fake.kubectlCmdfMutex.RLock()
-	defer fake.kubectlCmdfMutex.RUnlock()
-	argsForCall := fake.kubectlCmdfArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4
-}
-
-func (fake *FakeConfigurer) KubectlCmdfArgs() []FakeConfigurerKubectlCmdfArgs {
-	fake.kubectlCmdfMutex.RLock()
-	defer fake.kubectlCmdfMutex.RUnlock()
-	args := make([]FakeConfigurerKubectlCmdfArgs, len(fake.kubectlCmdfArgsForCall))
-	copy(args, fake.kubectlCmdfArgsForCall)
-	return args
-}
-
-func (fake *FakeConfigurer) KubectlCmdfReturns(result1 string) {
-	fake.kubectlCmdfMutex.Lock()
-	defer fake.kubectlCmdfMutex.Unlock()
-	fake.KubectlCmdfStub = nil
-	fake.kubectlCmdfReturns = struct {
-		result1 string
-	}{result1}
-}
-
-func (fake *FakeConfigurer) KubectlCmdfReturnsOnCall(i int, result1 string) {
-	fake.kubectlCmdfMutex.Lock()
-	defer fake.kubectlCmdfMutex.Unlock()
-	fake.KubectlCmdfStub = nil
-	if fake.kubectlCmdfReturnsOnCall == nil {
-		fake.kubectlCmdfReturnsOnCall = make(map[int]struct {
-			result1 string
-		})
-	}
-	fake.kubectlCmdfReturnsOnCall[i] = struct {
 		result1 string
 	}{result1}
 }

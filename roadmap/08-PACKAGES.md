@@ -128,7 +128,7 @@
 - **k3sctl**:
   - `LatestK3sBinaryURL(arch, osKind, preok)` — from k3s-io/k3s releases
   - `LatestK3sVersion(preok)` — latest K3s version
-  - `LatestRelease(preok)` — latest k3sctl release from vinaycharlie01/k3sctl
+  - `LatestRelease(preok)` — latest k3sctl release from nirantarasi/k3sctl
   - K3s release tags: `v1.28.2+k3s1` format
   - K3s binary naming: `k3s` (amd64), `k3s-arm64`, `k3s-armhf`
 

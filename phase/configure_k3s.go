@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"strings"
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 type ConfigureK3s struct {
@@ -56,11 +57,22 @@ func (p *ConfigureK3s) Run(ctx context.Context) error {
 			return fmt.Errorf("%s: generate config: %w", h, err)
 		}
 
+		configChanged := h.Metadata.K3sServiceRunning &&
+			!configBytesEqual([]byte(h.Metadata.K3sExistingConfig), configData)
+
 		configPath := h.Configurer.K3sConfigPath()
 		if err := h.Sudo().FS().WriteFile(configPath, configData, fs.FileMode(0600)); err != nil {
 			return fmt.Errorf("%s: write config: %w", h, err)
 		}
 		slog.Info(fmt.Sprintf("%s: wrote K3s config to %s", h, configPath))
+
+		if configChanged {
+			h.Metadata.NeedsConfigRestart = true
+			slog.Info(fmt.Sprintf("%s: config.yaml changed, will restart K3s", h))
+			if h.IsServer() {
+				p.removeSkipFiles(h)
+			}
+		}
 
 		return nil
 	})
@@ -106,4 +118,24 @@ func generateClusterToken() (string, error) {
 		return "", fmt.Errorf("generate token: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+// configBytesEqual compares two YAML config byte slices for semantic equality
+// by normalizing trailing whitespace. This prevents spurious restarts when the
+// only difference is a trailing newline.
+func configBytesEqual(existing, desired []byte) bool {
+	return strings.TrimSpace(string(existing)) == strings.TrimSpace(string(desired))
+}
+
+// removeSkipFiles deletes all .skip files from the K3s manifests directory.
+// K3s recreates them on startup for components listed in --disable, so removing
+// them before a restart lets re-enabled components come back.
+func (p *ConfigureK3s) removeSkipFiles(h *cluster.Host) {
+	manifestsDir := fmt.Sprintf("%s/server/manifests", h.K3sDataDir())
+	cmd := fmt.Sprintf("find %s -maxdepth 1 -name '*.skip' -delete 2>/dev/null", shellQuote(manifestsDir))
+	if err := h.Sudo().Exec(cmd); err != nil {
+		slog.Warn(fmt.Sprintf("%s: failed to remove .skip files: %v", h, err))
+	} else {
+		slog.Info(fmt.Sprintf("%s: removed .skip files from %s", h, manifestsDir))
+	}
 }

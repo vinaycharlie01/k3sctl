@@ -3,12 +3,11 @@ package phase
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/k8s"
 )
 
 type PostApplyHealthCheck struct {
@@ -36,19 +35,27 @@ func (p *PostApplyHealthCheck) Run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	leader := p.Config.Spec.K3sLeader()
-	if leader == nil || !leader.Metadata.K3sServiceRunning {
-		slog.Warn("no running leader found, skipping health verification")
-		return nil
+	kc := p.Config.Metadata.KubeClient
+	if kc == nil {
+		leader := p.Config.Spec.K3sLeader()
+		if leader == nil || !leader.Metadata.K3sServiceRunning {
+			slog.Warn("no running leader found, skipping health verification")
+			return nil
+		}
+		var err error
+		kc, err = kubeClientOrBuild(nil, leader)
+		if err != nil {
+			return fmt.Errorf("build kube client for health check: %w", err)
+		}
 	}
 
 	slog.Info(fmt.Sprintf("verifying cluster health (timeout: %s)", timeout))
 
-	if err := p.waitForAPIServer(ctx, leader); err != nil {
+	if err := p.waitForAPIServer(ctx, kc); err != nil {
 		return fmt.Errorf("API server health check failed: %w", err)
 	}
 
-	if err := p.waitForNodes(ctx, leader); err != nil {
+	if err := p.waitForNodes(ctx, kc); err != nil {
 		return fmt.Errorf("node readiness check failed: %w", err)
 	}
 
@@ -56,19 +63,17 @@ func (p *PostApplyHealthCheck) Run(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, leader *cluster.Host) error {
-	slog.Info(fmt.Sprintf("%s: waiting for API server", leader))
+func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, kc k8s.Client) error {
+	slog.Info("waiting for API server")
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timed out waiting for API server on %s", leader)
+			return fmt.Errorf("timed out waiting for API server")
 		default:
 		}
 
-		cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(), "get --raw /healthz 2>/dev/null")
-		output, err := leader.Sudo().ExecOutput(cmd)
-		if err == nil && strings.TrimSpace(output) == "ok" {
-			slog.Info(fmt.Sprintf("%s: API server healthy", leader))
+		if err := kc.CheckHealth(ctx); err == nil {
+			slog.Info("API server healthy")
 			return nil
 		}
 
@@ -76,7 +81,7 @@ func (p *PostApplyHealthCheck) waitForAPIServer(ctx context.Context, leader *clu
 	}
 }
 
-func (p *PostApplyHealthCheck) waitForNodes(ctx context.Context, leader *cluster.Host) error {
+func (p *PostApplyHealthCheck) waitForNodes(ctx context.Context, kc k8s.Client) error {
 	expected := p.Config.Spec.Hosts.Count()
 	slog.Info(fmt.Sprintf("waiting for %d node(s) to be ready", expected))
 
@@ -87,13 +92,10 @@ func (p *PostApplyHealthCheck) waitForNodes(ctx context.Context, leader *cluster
 		default:
 		}
 
-		cmd := leader.Configurer.KubectlCmdf(leader, leader.K3sDataDir(),
-			`get nodes --no-headers 2>/dev/null | grep -c " Ready"`)
-		output, err := leader.Sudo().ExecOutput(cmd)
+		count, err := kc.CountReadyNodes(ctx)
 		if err == nil {
-			count := strings.TrimSpace(output)
-			slog.Debug(fmt.Sprintf("ready nodes: %s/%d", count, expected))
-			if count == fmt.Sprintf("%d", expected) {
+			slog.Debug(fmt.Sprintf("ready nodes: %d/%d", count, expected))
+			if count >= expected {
 				slog.Info(fmt.Sprintf("all %d nodes are ready", expected))
 				return nil
 			}

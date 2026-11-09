@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vinaycharlie01/k3sctl/integration/localhost"
+	"github.com/nirantarasi/k3sctl/integration/localhost"
 )
 
 const defaultK3sVersion = "v1.37.1+k3s1"

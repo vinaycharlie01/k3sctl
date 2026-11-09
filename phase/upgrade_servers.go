@@ -7,9 +7,9 @@ import (
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/node"
-	"github.com/vinaycharlie01/k3sctl/pkg/retry"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/node"
+	"github.com/nirantarasi/k3sctl/pkg/retry"
 )
 
 type UpgradeServers struct {
@@ -49,14 +49,15 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 	// Drain/cordon the server before stopping it, unless this is a
 	// single-server cluster (draining the only server is pointless).
 	singleServer := len(p.Config.Spec.Hosts.Filter(func(hh *cluster.Host) bool { return hh.IsServer() })) == 1
-	if !p.NoDrain && p.leader != nil && !singleServer {
+	kc := p.Config.Metadata.KubeClient
+	if !p.NoDrain && kc != nil && !singleServer {
 		slog.Info(fmt.Sprintf("%s: cordoning node", h))
-		if err := h.CordonNode(p.leader); err != nil {
+		if err := h.CordonNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
 
 		slog.Info(fmt.Sprintf("%s: draining node", h))
-		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+		if err := h.DrainNode(ctx, kc, p.Config.Spec.Options.GetDrainOptions()); err != nil {
 			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 	}
@@ -96,14 +97,16 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 	}
 
 	slog.Info(fmt.Sprintf("%s: waiting for K3s server to be ready", h))
-	if err := retry.Context(ctx, node.KubeNodeReadyFunc(p.leader, h.KubernetesNodeName()),
-		retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
-		return fmt.Errorf("%s: wait for ready: %w", h, err)
+	if kc != nil {
+		if err := retry.Context(ctx, node.KubeNodeReadyFunc(kc, h.KubernetesNodeName()),
+			retry.Timeout(5*time.Minute), retry.Interval(10*time.Second)); err != nil {
+			return fmt.Errorf("%s: wait for ready: %w", h, err)
+		}
 	}
 
-	if !p.NoDrain && p.leader != nil && !singleServer {
+	if !p.NoDrain && kc != nil && !singleServer {
 		slog.Info(fmt.Sprintf("%s: uncordoning node", h))
-		if err := h.UncordonNode(p.leader); err != nil {
+		if err := h.UncordonNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: uncordon failed: %v", h, err))
 		}
 	}
@@ -116,11 +119,16 @@ func (p *UpgradeServers) upgradeServer(ctx context.Context, h *cluster.Host) err
 }
 
 func (p *UpgradeServers) CleanUp() {
-	if p.leader == nil {
+	if p.Config == nil {
 		return
 	}
+	kc := p.Config.Metadata.KubeClient
+	if kc == nil {
+		return
+	}
+	ctx := context.Background()
 	for _, h := range p.hosts {
-		if err := h.UncordonNode(p.leader); err != nil {
+		if err := h.UncordonNode(ctx, kc); err != nil {
 			slog.Debug(fmt.Sprintf("%s: cleanup uncordon: %v", h, err))
 		}
 	}

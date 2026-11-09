@@ -3,11 +3,11 @@ package phase
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/etcd"
 )
 
 type ResetServers struct {
@@ -45,23 +45,24 @@ func (p *ResetServers) Run(ctx context.Context) error {
 func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
 	slog.Info(fmt.Sprintf("%s: resetting K3s server", h))
 
-	if !p.NoDrain && p.leader != nil {
-		if err := h.CordonNode(p.leader); err != nil {
+	kc := p.Config.Metadata.KubeClient
+	if !p.NoDrain && kc != nil {
+		if err := h.CordonNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
-		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+		if err := h.DrainNode(ctx, kc, p.Config.Spec.Options.GetDrainOptions()); err != nil {
 			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 	}
 
-	if !p.NoDelete && p.leader != nil {
-		if err := h.DeleteNode(p.leader); err != nil {
+	if !p.NoDelete && kc != nil {
+		if err := h.DeleteNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: delete node failed: %v", h, err))
 		}
 	}
 
 	if p.leader != nil && p.leader.Metadata.K3sServiceRunning {
-		p.removeEtcdMember(h)
+		p.removeEtcdMember(ctx, h)
 	}
 
 	svc, err := h.Sudo().Service(h.K3sServiceName())
@@ -103,11 +104,10 @@ func (p *ResetServers) resetServer(ctx context.Context, h *cluster.Host) error {
 	return nil
 }
 
-// removeEtcdMember asks the leader to remove the host from the etcd cluster.
-// K3s exposes etcd member management through its API; we use kubectl to
-// identify the member by node name and then call `k3s etcd-snapshot` tooling
-// to trigger member removal. If the member is already gone, this is a no-op.
-func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
+// removeEtcdMember asks the leader to remove the host from the etcd cluster
+// using the native etcd v3 client. If the member is already gone, this is a
+// no-op.
+func (p *ResetServers) removeEtcdMember(ctx context.Context, h *cluster.Host) {
 	slog.Info(fmt.Sprintf("%s: removing etcd member via leader", h))
 
 	peerAddr := h.PrivateAddress
@@ -115,67 +115,31 @@ func (p *ResetServers) removeEtcdMember(h *cluster.Host) {
 		peerAddr = h.Address()
 	}
 
-	output, err := p.leader.Sudo().ExecOutput(
-		fmt.Sprintf("%s etcd-snapshot list 2>&1 || true", shellQuote(p.leader.K3sBinaryDir())),
-	)
-	if err != nil || strings.Contains(output, "connection refused") {
-		slog.Warn(fmt.Sprintf("%s: etcd not reachable on leader, skipping member removal: %v", h, err))
+	ec, err := etcdClientOrBuild(ctx, p.Config.Metadata.EtcdClient, p.leader)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("%s: could not connect to etcd on leader, skipping member removal: %v", h, err))
 		return
 	}
+	if p.Config.Metadata.EtcdClient == nil {
+		p.Config.Metadata.EtcdClient = ec
+	}
 
-	memberListCmd := fmt.Sprintf(
-		"ETCDCTL_API=3 %s etcdctl --endpoints https://127.0.0.1:2379 "+
-			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
-			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
-			"member list -w simple 2>/dev/null || true",
-		shellQuote(p.leader.K3sBinaryDir()),
-	)
-
-	memberOutput, err := p.leader.Sudo().ExecOutput(memberListCmd)
+	members, err := ec.MemberList(ctx)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("%s: could not list etcd members: %v", h, err))
 		return
 	}
 
-	memberID := findEtcdMemberID(memberOutput, peerAddr)
-	if memberID == "" {
+	m := etcd.FindMemberByPeerAddr(members, peerAddr)
+	if m == nil {
 		slog.Info(fmt.Sprintf("%s: etcd member not found (already removed or different address)", h))
 		return
 	}
 
-	removeCmd := fmt.Sprintf(
-		"ETCDCTL_API=3 %s etcdctl --endpoints https://127.0.0.1:2379 "+
-			"--cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt "+
-			"--key /var/lib/rancher/k3s/server/tls/etcd/server-client.key "+
-			"--cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt "+
-			"member remove %s",
-		shellQuote(p.leader.K3sBinaryDir()), memberID,
-	)
-
-	if err := p.leader.Sudo().Exec(removeCmd); err != nil {
+	if err := ec.MemberRemove(ctx, m.ID); err != nil {
 		slog.Warn(fmt.Sprintf("%s: etcd member remove failed: %v", h, err))
 		return
 	}
 
-	slog.Info(fmt.Sprintf("%s: etcd member %s removed", h, memberID))
-}
-
-// findEtcdMemberID parses etcdctl member list output to find the member ID
-// whose peer URL contains the given address. The simple output format is:
-// <id>, started, <name>, <peer-urls>, <client-urls>, <is-learner>
-func findEtcdMemberID(output, peerAddr string) string {
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.Contains(line, peerAddr) {
-			parts := strings.SplitN(line, ",", 2)
-			if len(parts) >= 1 {
-				return strings.TrimSpace(parts[0])
-			}
-		}
-	}
-	return ""
+	slog.Info(fmt.Sprintf("%s: etcd member %x removed", h, m.ID))
 }

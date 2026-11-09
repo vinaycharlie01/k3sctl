@@ -4,11 +4,11 @@
 - **Source**: `k0sctl/Makefile` (128 lines)
 - **Changes**:
   - Binary name: `k3sctl` instead of `k0sctl`
-  - LD_FLAGS: `github.com/vinaycharlie01/k3sctl/version.Environment`
+  - LD_FLAGS: `github.com/nirantarasi/k3sctl/version.Environment`
   - Build targets: same cross-platform approach
   - **Remove**: `k3sctl-win-amd64.exe` — no Windows support for K3s
   - Keep: linux-amd64, linux-arm64, linux-arm, linux-riscv64, darwin-amd64, darwin-arm64
-  - Docker image: `ghcr.io/vinaycharlie01/k3sctl` (if applicable)
+  - Docker image: `ghcr.io/nirantarasi/k3sctl` (if applicable)
   - Smoke test targets: adapt for k3sctl smoke tests
   - Lint: same golangci-lint integration
   - Test: `go test -v ./...`
@@ -26,7 +26,7 @@ install:             # Install to /usr/local/bin
 ## Build Flags
 ```makefile
 LD_FLAGS = -s -w \
-  -X github.com/vinaycharlie01/k3sctl/version.Environment=$(ENVIRONMENT) \
+  -X github.com/nirantarasi/k3sctl/version.Environment=$(ENVIRONMENT) \
   -X github.com/carlmjohnson/versioninfo.Revision=$(GIT_COMMIT) \
   -X github.com/carlmjohnson/versioninfo.Version=$(TAG_NAME)
 

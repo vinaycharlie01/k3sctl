@@ -4,7 +4,7 @@
 **Goal**: Compilable Go project with CLI skeleton
 
 ### 1.1 Project Setup
-- [ ] `go.mod` with module path `github.com/vinaycharlie01/k3sctl`
+- [ ] `go.mod` with module path `github.com/nirantarasi/k3sctl`
 - [ ] `main.go` entry point
 - [ ] `version/version.go` with LDFLAGS
 - [ ] `Makefile` for build/test/lint

@@ -119,7 +119,7 @@ WantedBy=multi-user.target
 
 ## Module Path
 
-`github.com/vinaycharlie01/k3sctl`
+`github.com/nirantarasi/k3sctl`
 
 ## Go Module Dependencies (adapted from k0sctl)
 

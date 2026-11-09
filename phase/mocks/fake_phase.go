@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/vinaycharlie01/k3sctl/phase"
+	"github.com/nirantarasi/k3sctl/phase"
 )
 
 type FakePhase struct {

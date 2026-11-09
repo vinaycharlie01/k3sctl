@@ -8,8 +8,8 @@ import (
 
 	"log/slog"
 
+	"github.com/nirantarasi/k3sctl/action"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/action"
 )
 
 func restoreCommand() *cli.Command {
@@ -42,6 +42,7 @@ func restoreCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			applyLoggingConfig(cfg)
 
 			if !ctx.Bool("force") {
 				fmt.Fprintf(os.Stderr, "WARNING: This will stop K3s, reset etcd state, and restore from %q.\n", snapshotPath)

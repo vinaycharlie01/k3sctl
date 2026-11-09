@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
-	"github.com/vinaycharlie01/k3sctl/integration/lxd"
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/lxd"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 const defaultIntegrationK3sVersion = "v1.37.1+k3s1"

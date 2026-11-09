@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/k0sproject/dig"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 func TestConfigureK3s_ResolveClusterToken(t *testing.T) {
@@ -77,6 +77,33 @@ func TestConfigureK3s_ResolveClusterToken(t *testing.T) {
 			t.Fatal("resolveClusterToken() error = nil, want error")
 		}
 	})
+}
+
+func TestConfigBytesEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing string
+		desired  string
+		want     bool
+	}{
+		{"identical", "token: abc\n", "token: abc\n", true},
+		{"trailing newline difference", "token: abc", "token: abc\n", true},
+		{"extra whitespace", "token: abc\n\n", "token: abc\n", true},
+		{"different content", "token: abc\n", "token: xyz\n", false},
+		{"added field", "token: abc\n", "token: abc\ndisable:\n- traefik\n", false},
+		{"removed field", "token: abc\ndisable:\n- traefik\n", "token: abc\n", false},
+		{"empty existing", "", "token: abc\n", false},
+		{"both empty", "", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := configBytesEqual([]byte(tt.existing), []byte(tt.desired))
+			if got != tt.want {
+				t.Errorf("configBytesEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func configurePhase(leader *cluster.Host, k3s *cluster.K3s) *ConfigureK3s {

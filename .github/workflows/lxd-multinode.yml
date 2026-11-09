@@ -36,11 +36,14 @@ name: LXD Multi-Node K3s
 
 on:
   push:
-    branches: ["**"]
+    branches: [main, "**"]
     paths:
       - ".github/workflows/lxd-multinode.yml"
       - "integration/**"
       - "phase/**"
+      - "cmd/**"
+      - "pkg/**"
+      - "configurer/**"
       - "go.mod"
       - "go.sum"
   pull_request:
@@ -86,10 +89,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.54.0
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.40.1
 
       - name: Setup LXD
         uses: canonical/setup-lxd@main

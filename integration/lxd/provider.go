@@ -25,7 +25,7 @@ import (
 	lxdclient "github.com/canonical/lxd/client"
 	"github.com/canonical/lxd/shared/api"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/environment"
 )
 
 const (

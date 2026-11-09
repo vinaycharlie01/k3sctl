@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	rigos "github.com/k0sproject/rig/v2/os"
-	"github.com/vinaycharlie01/k3sctl/configurer"
-	k3slinux "github.com/vinaycharlie01/k3sctl/configurer/linux"
+	"github.com/nirantarasi/k3sctl/configurer"
+	k3slinux "github.com/nirantarasi/k3sctl/configurer/linux"
 )
 
 type Fedora struct {

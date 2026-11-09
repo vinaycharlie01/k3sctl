@@ -8,7 +8,7 @@ import (
 
 	rig "github.com/k0sproject/rig/v2"
 	"github.com/k0sproject/rig/v2/remotefs"
-	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider"
+	"github.com/nirantarasi/k3sctl/pkg/k3s/binprovider"
 )
 
 type FakeHost struct {

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/vinaycharlie01/k3sctl/cmd"
+	"github.com/nirantarasi/k3sctl/cmd"
 )
 
 func main() {

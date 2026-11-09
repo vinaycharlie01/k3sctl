@@ -5,8 +5,8 @@ import (
 
 	"log/slog"
 
+	"github.com/nirantarasi/k3sctl/action"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/action"
 )
 
 func configDiffCommand() *cli.Command {
@@ -22,6 +22,7 @@ func configDiffCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			applyLoggingConfig(cfg)
 
 			m := action.ConfigDiff(action.ConfigDiffOptions{
 				Writer: os.Stdout,

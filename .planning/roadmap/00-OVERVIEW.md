@@ -7,8 +7,8 @@ Build `k3sctl` — a pure Go cluster management tool for K3s — modeled after `
 ## Source Reference
 
 - **Reference repo**: `github.com/k0sproject/k0sctl` (analyzed file-by-file)
-- **Target repo**: `github.com/vinaycharlie01/k3sctl`
-- **Go module**: `github.com/vinaycharlie01/k3sctl`
+- **Target repo**: `github.com/nirantarasi/k3sctl`
+- **Go module**: `github.com/nirantarasi/k3sctl`
 
 ## Key Differences: K0s vs K3s
 

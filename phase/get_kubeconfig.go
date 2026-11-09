@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/k8s"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type GetKubeconfig struct {
@@ -35,6 +36,9 @@ func (p *GetKubeconfig) ShouldRun() bool {
 func (p *GetKubeconfig) Run(_ context.Context) error {
 	h := p.leader
 	kubeconfigPath := "/etc/rancher/k3s/k3s.yaml"
+	if kc := p.Config.Spec.K3s.Kubeconfig; kc != nil && kc.Path != "" {
+		kubeconfigPath = kc.Path
+	}
 
 	slog.Info(fmt.Sprintf("%s: reading kubeconfig from %s", h, kubeconfigPath))
 	output, err := h.Sudo().ExecOutput(fmt.Sprintf("cat %s", shellQuote(kubeconfigPath)))
@@ -42,14 +46,17 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 		return fmt.Errorf("%s: read kubeconfig: %w", h, err)
 	}
 
-	kubeconfig := output
-
 	apiAddress := p.APIAddress
 	if apiAddress == "" {
 		apiAddress = fmt.Sprintf("https://%s:6443", h.Address())
 	}
-	kubeconfig = rewriteKubeconfig(kubeconfig, apiAddress, p.User, p.Cluster)
 
+	rewritten, err := k8s.RewriteKubeconfig([]byte(output), apiAddress, p.User, p.Cluster)
+	if err != nil {
+		return fmt.Errorf("rewrite kubeconfig: %w", err)
+	}
+
+	kubeconfig := string(rewritten)
 	if p.Out != nil {
 		if _, err := io.WriteString(p.Out, kubeconfig); err != nil {
 			return fmt.Errorf("write kubeconfig: %w", err)
@@ -57,21 +64,23 @@ func (p *GetKubeconfig) Run(_ context.Context) error {
 	}
 
 	p.Config.Metadata.Kubeconfig = kubeconfig
-	slog.Info("kubeconfig retrieved successfully")
 
+	kc, err := k8s.NewFromKubeconfig(rewritten)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("could not build kubernetes client from kubeconfig: %v", err))
+	} else {
+		p.Config.Metadata.KubeClient = kc
+	}
+
+	slog.Info("kubeconfig retrieved successfully")
 	return nil
 }
 
-// rewriteKubeconfig points a k3s-generated kubeconfig at the given API
-// address and optionally renames the default user and cluster.
-func rewriteKubeconfig(raw, apiAddress, user, cluster string) string {
-	out := strings.ReplaceAll(raw, "https://127.0.0.1:6443", apiAddress)
-	if cluster != "" {
-		out = strings.ReplaceAll(out, "cluster: default", "cluster: "+cluster)
-		out = strings.ReplaceAll(out, "name: default", "name: "+cluster)
+// WriteKubeconfigToFile writes the kubeconfig to a file using clientcmd.WriteToFile.
+func WriteKubeconfigToFile(kubeconfigYAML string, path string) error {
+	config, err := clientcmd.Load([]byte(kubeconfigYAML))
+	if err != nil {
+		return fmt.Errorf("parse kubeconfig: %w", err)
 	}
-	if user != "" {
-		out = strings.ReplaceAll(out, "user: default", "user: "+user)
-	}
-	return out
+	return clientcmd.WriteToFile(*config, path)
 }

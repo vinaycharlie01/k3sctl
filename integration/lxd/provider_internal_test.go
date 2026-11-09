@@ -7,7 +7,7 @@ import (
 
 	"github.com/canonical/lxd/shared/api"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/environment"
 )
 
 const testAuthorizedKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyMaterialForUnitTests test@example"

@@ -3,8 +3,8 @@ package k3s
 import (
 	"context"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/k3s/binprovider"
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6@v6.14.0 --fake-name FakeBinaryProvider -o ./mocks/fake_binary_provider.go . BinaryProvider

@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/environment"
 )
 
 type FakeEnvironment struct {

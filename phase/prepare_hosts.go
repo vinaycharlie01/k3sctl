@@ -10,9 +10,9 @@ import (
 	"log/slog"
 
 	rig "github.com/k0sproject/rig/v2"
-	"github.com/vinaycharlie01/k3sctl/configurer"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/retry"
+	"github.com/nirantarasi/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/retry"
 )
 
 type PrepareHosts struct {

@@ -23,6 +23,7 @@ back up and reset the cluster over SSH.
 - etcd snapshots (`backup`), etcd member validation and restore (`restore`)
 - Fetches a ready-to-use admin kubeconfig
 - Idempotent `apply`: safe to re-run, only changes what drifted
+- Config reconciliation: detects config.yaml changes and restarts K3s automatically
 - Rolling upgrades with drain/cordon for both servers and agents
 - Configuration validation (`config validate`)
 - Configuration diff (`config diff`) — preview what `apply` would change
@@ -39,23 +40,63 @@ Linux hosts only.
 
 ## Installation
 
-From a release, download the binary for your platform and place it on your
-`PATH`:
+### Homebrew (macOS / Linux)
 
 ```sh
-curl -sSfL -o k3sctl \
-  https://github.com/vinaycharlie01/k3sctl/releases/latest/download/k3sctl_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m)
-chmod +x k3sctl
-sudo install -m 755 k3sctl /usr/local/bin/k3sctl
+brew install nirantarasi/tap/k3sctl
 ```
 
-With Go:
+### Shell script (Linux / macOS)
 
 ```sh
-go install github.com/vinaycharlie01/k3sctl@latest
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  armv7l)  ARCH="arm" ;;
+esac
+VERSION=$(curl -sI https://github.com/nirantarasi/k3sctl/releases/latest | grep -i location | sed 's/.*tag\///' | tr -d '\r\n')
+TMPDIR=$(mktemp -d)
+curl -sSfL "https://github.com/nirantarasi/k3sctl/releases/download/${VERSION}/k3sctl_${VERSION#v}_${OS}_${ARCH}.tar.gz" | tar xz -C "$TMPDIR"
+sudo install -m 755 "$TMPDIR/k3sctl" /usr/local/bin/k3sctl
+rm -rf "$TMPDIR"
 ```
 
-Or build it yourself with [Task](https://taskfile.dev):
+### Debian / Ubuntu
+
+```sh
+VERSION=$(curl -sI https://github.com/nirantarasi/k3sctl/releases/latest | grep -i location | sed 's/.*tag\///' | tr -d '\r\n')
+curl -sSfL -O "https://github.com/nirantarasi/k3sctl/releases/download/${VERSION}/k3sctl_${VERSION#v}_linux_amd64.deb"
+sudo dpkg -i k3sctl_*.deb
+rm -f k3sctl_*.deb
+```
+
+### RHEL / Fedora
+
+```sh
+VERSION=$(curl -sI https://github.com/nirantarasi/k3sctl/releases/latest | grep -i location | sed 's/.*tag\///' | tr -d '\r\n')
+curl -sSfL -O "https://github.com/nirantarasi/k3sctl/releases/download/${VERSION}/k3sctl_${VERSION#v}_linux_amd64.rpm"
+sudo rpm -i k3sctl_*.rpm
+rm -f k3sctl_*.rpm
+```
+
+### Alpine
+
+```sh
+VERSION=$(curl -sI https://github.com/nirantarasi/k3sctl/releases/latest | grep -i location | sed 's/.*tag\///' | tr -d '\r\n')
+curl -sSfL -O "https://github.com/nirantarasi/k3sctl/releases/download/${VERSION}/k3sctl_${VERSION#v}_linux_amd64.apk"
+sudo apk add --allow-untrusted k3sctl_*.apk
+rm -f k3sctl_*.apk
+```
+
+### With Go
+
+```sh
+go install github.com/nirantarasi/k3sctl@latest
+```
+
+### Build from source
 
 ```sh
 go install github.com/go-task/task/v3/cmd/task@latest
@@ -370,6 +411,29 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 > focuses on declarative cluster lifecycle — use the YAML config with `apply` for
 > state changes, and `k3s` CLI directly for ad-hoc queries.
 
+## Config reconciliation
+
+`k3sctl apply` is fully declarative: changing a field in your YAML and
+re-running `apply` is enough to reconfigure a running cluster. The apply
+pipeline detects three kinds of drift and handles each one:
+
+| Change type | Example | What happens |
+|---|---|---|
+| **Version** | `k3s.version` bumped | Rolling upgrade with drain/cordon |
+| **Install flags** | `installFlags` or `environment` changed | Systemd unit rewritten, K3s restarted |
+| **Config** | `k3s.config`, `disable`, `registries` etc. | `config.yaml` rewritten, K3s restarted |
+
+On each apply, the `ConfigureK3s` phase compares the generated
+`config.yaml` against what is already on disk. When the content differs,
+it sets a `NeedsConfigRestart` flag that causes the `Reinstall` phase to
+restart K3s — without rewriting the systemd unit (since install flags
+have not changed). When the config is identical, no restart occurs,
+making re-applies idempotent.
+
+This means you can, for example, disable Traefik by adding `disable:
+components: [traefik]` to the config and running `apply` — K3s will
+restart and pick up the change.
+
 ## Roadmap
 
 ### Done
@@ -388,6 +452,7 @@ Global flags: `--debug`, `--trace`, `--no-redact`.
 - Cluster join token rotation on apply
 - Automated etcd snapshot scheduling and pruning on apply
 - Post-apply cluster health verification
+- Config reconciliation — detect config.yaml drift and restart K3s automatically
 
 ### Next
 

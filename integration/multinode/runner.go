@@ -12,7 +12,7 @@ import (
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/environment"
 )
 
 const (
@@ -71,6 +71,24 @@ type Runner struct {
 // SetK3sOverrides configures additional K3s flags for the generated manifest.
 func (r *Runner) SetK3sOverrides(overrides *K3sOverrides) {
 	r.k3sOverrides = overrides
+}
+
+// WriteConfig generates a k3sctl manifest and returns the config file path.
+// This exported variant allows multi-step integration tests to generate configs
+// with different overrides and re-apply.
+func (r *Runner) WriteConfig(nodes []environment.Node) (string, error) {
+	return r.writeConfig(nodes)
+}
+
+// Apply runs k3sctl apply with the given config. It is exported so multi-step
+// integration tests can call apply with different configs.
+func (r *Runner) Apply(ctx context.Context, configPath string) error {
+	return r.apply(ctx, configPath)
+}
+
+// Verify runs the standard post-apply verification checks.
+func (r *Runner) Verify(ctx context.Context, nodes []environment.Node, configPath string) error {
+	return r.verify(ctx, nodes, configPath)
 }
 
 // NewRunner validates options and returns a runner.

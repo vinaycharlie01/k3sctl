@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
-	"github.com/vinaycharlie01/k3sctl/integration/multinode/mocks"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
+	"github.com/nirantarasi/k3sctl/integration/multinode/mocks"
 )
 
 func TestCollectDiagnosticsWithEmptyTargets(t *testing.T) {

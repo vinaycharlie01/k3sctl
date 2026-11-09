@@ -6,8 +6,8 @@ import (
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/k3s"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/k3s"
 )
 
 type StageBinaries struct {

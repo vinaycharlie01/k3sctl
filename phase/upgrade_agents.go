@@ -7,9 +7,9 @@ import (
 
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
-	"github.com/vinaycharlie01/k3sctl/pkg/node"
-	"github.com/vinaycharlie01/k3sctl/pkg/retry"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/node"
+	"github.com/nirantarasi/k3sctl/pkg/retry"
 )
 
 type UpgradeAgents struct {
@@ -53,14 +53,15 @@ func (p *UpgradeAgents) Run(ctx context.Context) error {
 func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error {
 	slog.Info(fmt.Sprintf("%s: upgrading K3s agent from %s to %s", h, h.Metadata.K3sRunningVersion, p.Config.Spec.K3s.Version))
 
-	if !p.NoDrain && p.leader != nil {
+	kc := p.Config.Metadata.KubeClient
+	if !p.NoDrain && kc != nil {
 		slog.Info(fmt.Sprintf("%s: cordoning node", h))
-		if err := h.CordonNode(p.leader); err != nil {
+		if err := h.CordonNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: cordon failed: %v", h, err))
 		}
 
 		slog.Info(fmt.Sprintf("%s: draining node", h))
-		if err := h.DrainNode(p.leader, p.Config.Spec.Options.GetDrainOptions()); err != nil {
+		if err := h.DrainNode(ctx, kc, p.Config.Spec.Options.GetDrainOptions()); err != nil {
 			slog.Warn(fmt.Sprintf("%s: drain failed: %v", h, err))
 		}
 	}
@@ -99,9 +100,9 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 		return fmt.Errorf("%s: start service: %w", h, err)
 	}
 
-	if !p.NoDrain && p.leader != nil {
+	if !p.NoDrain && kc != nil {
 		slog.Info(fmt.Sprintf("%s: uncordoning node", h))
-		if err := h.UncordonNode(p.leader); err != nil {
+		if err := h.UncordonNode(ctx, kc); err != nil {
 			slog.Warn(fmt.Sprintf("%s: uncordon failed: %v", h, err))
 		}
 	}
@@ -114,11 +115,16 @@ func (p *UpgradeAgents) upgradeAgent(ctx context.Context, h *cluster.Host) error
 }
 
 func (p *UpgradeAgents) CleanUp() {
-	if p.leader == nil {
+	if p.Config == nil {
 		return
 	}
+	kc := p.Config.Metadata.KubeClient
+	if kc == nil {
+		return
+	}
+	ctx := context.Background()
 	for _, h := range p.hosts {
-		if err := h.UncordonNode(p.leader); err != nil {
+		if err := h.UncordonNode(ctx, kc); err != nil {
 			slog.Debug(fmt.Sprintf("%s: cleanup uncordon: %v", h, err))
 		}
 	}

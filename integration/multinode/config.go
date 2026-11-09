@@ -6,9 +6,9 @@ import (
 	rigssh "github.com/k0sproject/rig/v2/protocol/ssh"
 	"gopkg.in/yaml.v2"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
-	v1beta1 "github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/integration/environment"
+	v1beta1 "github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
 )
 
 // K3sOverrides holds optional K3s configuration that the integration test
@@ -30,6 +30,8 @@ type K3sOverrides struct {
 	EmbeddedRegistry *cluster.EmbeddedRegistryConfig
 	// Agent overrides the agent stanza.
 	Agent *cluster.AgentConfig
+	// Disable overrides the disable stanza.
+	Disable *cluster.DisableConfig
 	// Labels sets node labels on all hosts.
 	Labels map[string]string
 }
@@ -106,6 +108,9 @@ func (c ClusterConfig) Generate() ([]byte, error) {
 		}
 		if c.K3s.Agent != nil {
 			k3sCfg.Agent = c.K3s.Agent
+		}
+		if c.K3s.Disable != nil {
+			k3sCfg.Disable = c.K3s.Disable
 		}
 	}
 

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
-	mnodemocks "github.com/vinaycharlie01/k3sctl/integration/multinode/mocks"
+	"github.com/nirantarasi/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
+	mnodemocks "github.com/nirantarasi/k3sctl/integration/multinode/mocks"
 )
 
 // multiServerNodes returns a 3-server + 1-agent topology for upgrade tests.

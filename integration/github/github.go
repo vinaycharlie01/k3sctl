@@ -13,7 +13,7 @@ import (
 
 const (
 	k3sReleasesURL    = "https://api.github.com/repos/k3s-io/k3s/releases"
-	k3sctlReleasesURL = "https://api.github.com/repos/vinaycharlie01/k3sctl/releases"
+	k3sctlReleasesURL = "https://api.github.com/repos/nirantarasi/k3sctl/releases"
 )
 
 type release struct {

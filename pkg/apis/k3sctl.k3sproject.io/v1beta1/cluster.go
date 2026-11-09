@@ -3,7 +3,9 @@ package v1beta1
 import (
 	"fmt"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/apis/k3sctl.k3sproject.io/v1beta1/cluster"
+	"github.com/nirantarasi/k3sctl/pkg/etcd"
+	"github.com/nirantarasi/k3sctl/pkg/k8s"
 )
 
 const APIVersion = "k3sctl.k3sproject.io/v1beta1"
@@ -11,6 +13,8 @@ const APIVersion = "k3sctl.k3sproject.io/v1beta1"
 type ClusterMetadata struct {
 	Name       string            `yaml:"name" default:"k3s-cluster"`
 	Kubeconfig string            `yaml:"-"`
+	KubeClient k8s.Client        `yaml:"-"`
+	EtcdClient etcd.Client       `yaml:"-"`
 	Manifests  map[string][]byte `yaml:"-"`
 }
 

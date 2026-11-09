@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/vinaycharlie01/k3sctl/pkg/k3s/binprovider"
+	"github.com/nirantarasi/k3sctl/pkg/k3s/binprovider"
 )
 
 type FakeBinaryCacher struct {

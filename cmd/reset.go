@@ -5,8 +5,8 @@ import (
 
 	"log/slog"
 
+	"github.com/nirantarasi/k3sctl/action"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/action"
 )
 
 func resetCommand() *cli.Command {
@@ -37,6 +37,7 @@ func resetCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			applyLoggingConfig(cfg)
 
 			if !ctx.Bool("force") {
 				fmt.Println("This will remove K3s from all configured hosts.")

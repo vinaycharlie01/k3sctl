@@ -4,7 +4,7 @@
 
 ### `go.mod`
 - **Source**: `k0sctl/go.mod`
-- **Module**: `github.com/vinaycharlie01/k3sctl`
+- **Module**: `github.com/nirantarasi/k3sctl`
 - **Go version**: 1.27.0 (match k0sctl)
 - **Key dependencies** (same as k0sctl):
   - `github.com/urfave/cli/v2` — CLI framework
@@ -32,8 +32,8 @@
 ### `main.go`
 - **Source**: `k0sctl/main.go` (21 lines)
 - **Changes**:
-  - Import `github.com/vinaycharlie01/k3sctl/cmd`
-  - Import `github.com/vinaycharlie01/k3sctl/version` (blank)
+  - Import `github.com/nirantarasi/k3sctl/cmd`
+  - Import `github.com/nirantarasi/k3sctl/version` (blank)
   - `cmd.NewK3sctl(os.Stdin, os.Stdout, os.Stderr)`
   - Otherwise identical structure
 

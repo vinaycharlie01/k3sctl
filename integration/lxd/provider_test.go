@@ -13,9 +13,9 @@ import (
 	lxdclient "github.com/canonical/lxd/client"
 	"github.com/canonical/lxd/shared/api"
 
-	"github.com/vinaycharlie01/k3sctl/integration/environment"
-	"github.com/vinaycharlie01/k3sctl/integration/lxd"
-	"github.com/vinaycharlie01/k3sctl/integration/lxd/mocks"
+	"github.com/nirantarasi/k3sctl/integration/environment"
+	"github.com/nirantarasi/k3sctl/integration/lxd"
+	"github.com/nirantarasi/k3sctl/integration/lxd/mocks"
 )
 
 const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyMaterialForUnitTests test@example"

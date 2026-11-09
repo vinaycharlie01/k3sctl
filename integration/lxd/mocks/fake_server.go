@@ -7,7 +7,7 @@ import (
 
 	lxda "github.com/canonical/lxd/client"
 	"github.com/canonical/lxd/shared/api"
-	"github.com/vinaycharlie01/k3sctl/integration/lxd"
+	"github.com/nirantarasi/k3sctl/integration/lxd"
 )
 
 type FakeServer struct {

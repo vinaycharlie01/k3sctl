@@ -14,8 +14,8 @@ ENV CGO_ENABLED=0
 
 RUN go build -trimpath \
       -ldflags "-s -w \
-        -X github.com/vinaycharlie01/k3sctl/version.Version=${VERSION} \
-        -X github.com/vinaycharlie01/k3sctl/version.GitCommit=${GIT_COMMIT}" \
+        -X github.com/nirantarasi/k3sctl/version.Version=${VERSION} \
+        -X github.com/nirantarasi/k3sctl/version.GitCommit=${GIT_COMMIT}" \
       -o /out/k3sctl .
 
 FROM alpine:3.20

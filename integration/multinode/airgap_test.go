@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
 )
 
 // TestAirgapApplyUploadsBundle verifies that an apply with airgap config

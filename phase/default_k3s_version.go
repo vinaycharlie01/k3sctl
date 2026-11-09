@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/vinaycharlie01/k3sctl/integration/github"
+	"github.com/nirantarasi/k3sctl/integration/github"
 )
 
 type DefaultK3sVersion struct {

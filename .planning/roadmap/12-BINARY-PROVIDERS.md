@@ -16,7 +16,7 @@ Binary providers implement the strategy pattern for acquiring K3s binaries on ta
   - `BinaryCacher` interface: identical
     - `BinaryCacheKey() (string, error)`
     - `EnsureCached(ctx context.Context) error`
-  - Module path: `github.com/vinaycharlie01/k3sctl/pkg/k3s`
+  - Module path: `github.com/nirantarasi/k3sctl/pkg/k3s`
 
 ## `pkg/k3s/binprovider/host.go`
 - **Source**: `k0sctl/pkg/k0s/binprovider/host.go` (42 lines)

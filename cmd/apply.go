@@ -7,8 +7,8 @@ import (
 
 	"log/slog"
 
+	"github.com/nirantarasi/k3sctl/action"
 	"github.com/urfave/cli/v2"
-	"github.com/vinaycharlie01/k3sctl/action"
 )
 
 func applyCommand() *cli.Command {
@@ -53,6 +53,10 @@ func applyCommand() *cli.Command {
 				Usage: "Allow downgrading K3s versions",
 			},
 			&cli.BoolFlag{
+				Name:  "no-save-kubeconfig",
+				Usage: "Don't auto-save kubeconfig to ~/.kube/config",
+			},
+			&cli.BoolFlag{
 				Name:  "force",
 				Usage: "Skip confirmation prompts",
 			},
@@ -64,6 +68,7 @@ func applyCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			applyLoggingConfig(cfg)
 
 			// Keep this typed as io.Writer: a nil *os.File assigned to the
 			// interface would be non-nil, so Apply would add the kubeconfig
@@ -87,6 +92,7 @@ func applyCommand() *cli.Command {
 				KubeconfigAPIAddress:  ctx.String("kubeconfig-api-address"),
 				KubeconfigUser:        ctx.String("kubeconfig-user"),
 				KubeconfigCluster:     ctx.String("kubeconfig-cluster"),
+				NoSaveKubeconfig:      ctx.Bool("no-save-kubeconfig"),
 			})
 
 			m.DryRun = ctx.Bool("dry-run")
@@ -98,11 +104,6 @@ func applyCommand() *cli.Command {
 			}
 
 			slog.Info("==> Apply complete")
-
-			if kubeconfigOut == nil {
-				slog.Info("To get the kubeconfig, run: k3sctl kubeconfig")
-			}
-
 			return nil
 		},
 	}

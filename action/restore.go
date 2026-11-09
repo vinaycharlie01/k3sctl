@@ -1,6 +1,6 @@
 package action
 
-import "github.com/vinaycharlie01/k3sctl/phase"
+import "github.com/nirantarasi/k3sctl/phase"
 
 type RestoreOptions struct {
 	RestoreFrom string

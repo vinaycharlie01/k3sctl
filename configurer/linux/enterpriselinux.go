@@ -1,7 +1,7 @@
 package linux
 
 import (
-	"github.com/vinaycharlie01/k3sctl/configurer"
+	"github.com/nirantarasi/k3sctl/configurer"
 )
 
 type EnterpriseLinux struct {

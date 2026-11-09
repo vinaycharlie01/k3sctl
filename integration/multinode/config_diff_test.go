@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vinaycharlie01/k3sctl/integration/multinode"
-	mnodemocks "github.com/vinaycharlie01/k3sctl/integration/multinode/mocks"
+	"github.com/nirantarasi/k3sctl/integration/multinode"
+	mnodemocks "github.com/nirantarasi/k3sctl/integration/multinode/mocks"
 )
 
 // TestConfigDiffCommandInvocation verifies that the k3sctl config diff
